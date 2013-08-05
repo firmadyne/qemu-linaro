@@ -2875,9 +2875,12 @@ static void gen_ibreak_check(CPUXtensaState *env, DisasContext *dc)
     }
 }
 
-static void gen_intermediate_code_internal(
-        CPUXtensaState *env, TranslationBlock *tb, int search_pc)
+static inline
+void gen_intermediate_code_internal(XtensaCPU *cpu,
+                                    TranslationBlock *tb, bool search_pc)
 {
+    CPUState *cs = CPU(cpu);
+    CPUXtensaState *env = &cpu->env;
     DisasContext dc;
     int insn_count = 0;
     int j, lj = -1;
@@ -2892,7 +2895,7 @@ static void gen_intermediate_code_internal(
     }
 
     dc.config = env->config;
-    dc.singlestep_enabled = env->singlestep_enabled;
+    dc.singlestep_enabled = cs->singlestep_enabled;
     dc.tb = tb;
     dc.pc = pc_start;
     dc.ring = tb->flags & XTENSA_TBFLAG_RING_MASK;
@@ -2915,7 +2918,7 @@ static void gen_intermediate_code_internal(
 
     gen_tb_start();
 
-    if (env->singlestep_enabled && env->exception_taken) {
+    if (cs->singlestep_enabled && env->exception_taken) {
         env->exception_taken = 0;
         tcg_gen_movi_i32(cpu_pc, dc.pc);
         gen_exception(&dc, EXCP_DEBUG);
@@ -2968,7 +2971,7 @@ static void gen_intermediate_code_internal(
         if (dc.icount) {
             tcg_gen_mov_i32(cpu_SR[ICOUNT], dc.next_icount);
         }
-        if (env->singlestep_enabled) {
+        if (cs->singlestep_enabled) {
             tcg_gen_movi_i32(cpu_pc, dc.pc);
             gen_exception(&dc, EXCP_DEBUG);
             break;
@@ -3006,17 +3009,19 @@ static void gen_intermediate_code_internal(
 
 void gen_intermediate_code(CPUXtensaState *env, TranslationBlock *tb)
 {
-    gen_intermediate_code_internal(env, tb, 0);
+    gen_intermediate_code_internal(xtensa_env_get_cpu(env), tb, false);
 }
 
 void gen_intermediate_code_pc(CPUXtensaState *env, TranslationBlock *tb)
 {
-    gen_intermediate_code_internal(env, tb, 1);
+    gen_intermediate_code_internal(xtensa_env_get_cpu(env), tb, true);
 }
 
-void cpu_dump_state(CPUXtensaState *env, FILE *f, fprintf_function cpu_fprintf,
-        int flags)
+void xtensa_cpu_dump_state(CPUState *cs, FILE *f,
+                           fprintf_function cpu_fprintf, int flags)
 {
+    XtensaCPU *cpu = XTENSA_CPU(cs);
+    CPUXtensaState *env = &cpu->env;
     int i, j;
 
     cpu_fprintf(f, "PC=%08x\n\n", env->pc);

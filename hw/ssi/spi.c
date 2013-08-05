@@ -41,7 +41,7 @@ static const TypeInfo spi_bus_info = {
 
 SPIBus *spi_init_bus(DeviceState *parent, const char *name, int num_channels)
 {
-    SPIBus *bus = FROM_QBUS(SPIBus, qbus_create(TYPE_SPI_BUS, parent, name));
+    SPIBus *bus = SPI_BUS(qbus_create(TYPE_SPI_BUS, parent, name));
     bus->channels = num_channels;
     bus->device = g_new0(SPIDevice*, bus->channels);
     return bus;

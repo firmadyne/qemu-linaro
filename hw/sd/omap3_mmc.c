@@ -50,9 +50,12 @@
 #define TRACE2(...)
 #endif
 
-struct omap3_mmc_s
-{
-    SysBusDevice busdev;
+#define TYPE_OMAP3_MMC "omap3_mmc"
+#define OMAP3_MMC(obj) OBJECT_CHECK(OMAP3MMCState, (obj), TYPE_OMAP3_MMC)
+
+typedef struct OMAP3MMCState {
+    SysBusDevice parent_obj;
+
     MemoryRegion iomem;
     qemu_irq irq;
     qemu_irq dma[2];
@@ -95,7 +98,7 @@ struct omap3_mmc_s
     int ddir;
     int transfer;
     int stop;
-};
+} OMAP3MMCState;
 
 /* Bit names for STAT/IC/IE registers */
 #define STAT_CC (1 << 0)
@@ -128,8 +131,8 @@ struct omap3_mmc_s
 
 static void omap3_mmc_reset(DeviceState *dev)
 {
-    struct omap3_mmc_s *s = FROM_SYSBUS(struct omap3_mmc_s,
-                                        SYS_BUS_DEVICE(dev));
+    OMAP3MMCState *s = OMAP3_MMC(dev);
+
     s->sysconfig = 0x00000015;
     s->sysstatus = 0;
     s->csre      = 0;
@@ -179,14 +182,14 @@ typedef enum
     sd_48b_bits = 3, /* response length 48 bits with busy after response */
 } omap3_sd_rsp_type_t;
 
-static void omap3_mmc_command(struct omap3_mmc_s *host);
+static void omap3_mmc_command(OMAP3MMCState *host);
 
-static void omap3_mmc_interrupts_update(struct omap3_mmc_s *s)
+static void omap3_mmc_interrupts_update(OMAP3MMCState *s)
 {
     qemu_set_irq(s->irq, !!(s->stat & s->ie & s->ise));
 }
 
-static void omap3_mmc_fifolevel_update(struct omap3_mmc_s *host)
+static void omap3_mmc_fifolevel_update(OMAP3MMCState *host)
 {
     enum { ongoing, ready, aborted } state = ongoing;
     
@@ -269,7 +272,7 @@ static void omap3_mmc_fifolevel_update(struct omap3_mmc_s *host)
     }
 }
 
-static void omap3_mmc_transfer(struct omap3_mmc_s *host)
+static void omap3_mmc_transfer(OMAP3MMCState *host)
 {
     int i;
     uint32_t x;
@@ -342,7 +345,7 @@ static void omap3_mmc_transfer(struct omap3_mmc_s *host)
     }
 }
 
-static void omap3_mmc_command(struct omap3_mmc_s *s)
+static void omap3_mmc_command(OMAP3MMCState *s)
 {
     uint32_t rspstatus, mask;
     int rsplen, timeout;
@@ -469,7 +472,7 @@ static void omap3_mmc_command(struct omap3_mmc_s *s)
 
 static uint32_t omap3_mmc_read(void *opaque, hwaddr addr)
 {
-    struct omap3_mmc_s *s = (struct omap3_mmc_s *) opaque;
+    OMAP3MMCState *s = (OMAP3MMCState *) opaque;
     uint32_t i ;
 
     switch (addr) {
@@ -576,7 +579,7 @@ static uint32_t omap3_mmc_read(void *opaque, hwaddr addr)
 static void omap3_mmc_write(void *opaque, hwaddr addr,
                             uint32_t value)
 {
-    struct omap3_mmc_s *s = (struct omap3_mmc_s *) opaque;
+    OMAP3MMCState *s = (OMAP3MMCState *) opaque;
     
     switch (addr) {
         case 0x014:
@@ -592,7 +595,7 @@ static void omap3_mmc_write(void *opaque, hwaddr addr,
         case 0x010:
             TRACE2("SYSCONFIG = %08x", value);
             if (value & 2)
-                omap3_mmc_reset(&s->busdev.qdev);
+                omap3_mmc_reset(DEVICE(s));
             s->sysconfig = value & 0x31d;
             break;
         case 0x024:
@@ -689,7 +692,7 @@ static void omap3_mmc_write(void *opaque, hwaddr addr,
             if (value & 0x01000000) { /* SRA */
                 uint32_t capa = s->capa;
                 uint32_t cur_capa = s->cur_capa;
-                omap3_mmc_reset(&s->busdev.qdev);
+                omap3_mmc_reset(DEVICE(s));
                 s->capa = capa;
                 s->cur_capa = cur_capa;
             }
@@ -753,11 +756,12 @@ static const MemoryRegionOps omap3_mmc_ops = {
 
 static int omap3_mmc_init(SysBusDevice *dev)
 {
-    struct omap3_mmc_s *s = FROM_SYSBUS(struct omap3_mmc_s, dev);
+    OMAP3MMCState *s = OMAP3_MMC(dev);
+
     sysbus_init_irq(dev, &s->irq);
     sysbus_init_irq(dev, &s->dma[0]);
     sysbus_init_irq(dev, &s->dma[1]);
-    memory_region_init_io(&s->iomem, &omap3_mmc_ops, s,
+    memory_region_init_io(&s->iomem, OBJECT(s), &omap3_mmc_ops, s,
                           "omap3_mmc", 0x1000);
     sysbus_init_mmio(dev, &s->iomem);
     return 0;
@@ -772,9 +776,9 @@ static void omap3_mmc_class_init(ObjectClass *klass, void *data)
 }
 
 static TypeInfo omap3_mmc_info = {
-    .name = "omap3_mmc",
+    .name = TYPE_OMAP3_MMC,
     .parent = TYPE_SYS_BUS_DEVICE,
-    .instance_size = sizeof(struct omap3_mmc_s),
+    .instance_size = sizeof(OMAP3MMCState),
     .class_init = omap3_mmc_class_init,
 };
 
@@ -786,8 +790,8 @@ static void omap3_mmc_register_types(void)
 void omap3_mmc_attach(DeviceState *dev, BlockDriverState *bs,
                       int is_spi, int is_mmc)
 {
-    struct omap3_mmc_s *s = FROM_SYSBUS(struct omap3_mmc_s,
-                                        SYS_BUS_DEVICE(dev));
+    OMAP3MMCState *s = OMAP3_MMC(dev);
+
     if (s->card) {
         hw_error("%s: card already attached!", __FUNCTION__);
     }

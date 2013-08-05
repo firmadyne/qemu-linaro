@@ -34,18 +34,23 @@
 #define TRACE(...)
 #endif
 
+#define TYPE_OMAP3_HSUSB_OTG "omap3_hsusb_otg"
+#define OMAP3_HSUSB_OTG(obj) OBJECT_CHECK(OMAP3HSUSBOTGState, \
+                                          (obj), TYPE_OMAP3_HSUSB_OTG)
+
 /* usb-musb.c */
 extern CPUReadMemoryFunc *musb_read[];
 extern CPUWriteMemoryFunc *musb_write[];
 
-typedef struct omap3_hsusb_otg_s {
-    SysBusDevice busdev;
+typedef struct OMAP3HSUSBOTGState {
+    SysBusDevice parent_obj;
+
     MemoryRegion iomem;
     qemu_irq mc_irq;
     qemu_irq dma_irq;
     qemu_irq stdby_irq;
     MUSBState *musb;
-    
+
     uint8_t rev;
     uint16_t sysconfig;
     uint8_t interfsel;
@@ -54,7 +59,7 @@ typedef struct omap3_hsusb_otg_s {
 } OMAP3HSUSBOTGState;
 
 static const VMStateDescription vmstate_omap3_hsusb_otg = {
-    .name = "omap3_hsusb_otg",
+    .name = TYPE_OMAP3_HSUSB_OTG,
     .version_id = 1,
     .minimum_version_id = 1,
     .minimum_version_id_old = 1,
@@ -76,8 +81,8 @@ static void omap3_hsusb_otg_stdby_update(OMAP3HSUSBOTGState *s)
 
 static void omap3_hsusb_otg_reset(DeviceState *dev)
 {
-    OMAP3HSUSBOTGState *s = FROM_SYSBUS(OMAP3HSUSBOTGState,
-                                        SYS_BUS_DEVICE(dev));
+    OMAP3HSUSBOTGState *s = OMAP3_HSUSB_OTG(dev);
+
     s->rev = 0x33;
     s->sysconfig = 0;
     s->interfsel = 0x1;
@@ -92,7 +97,7 @@ static uint32_t omap3_hsusb_otg_read(int access,
                                      hwaddr addr)
 {
     OMAP3HSUSBOTGState *s = opaque;
-    
+
     if (addr < 0x200)
         return musb_read[access](s->musb, addr);
     if (addr < 0x400)
@@ -129,12 +134,12 @@ static void omap3_hsusb_otg_write(int access,
                                   uint32_t value)
 {
     OMAP3HSUSBOTGState *s = opaque;
-    
-    if (addr < 0x200)
+
+    if (addr < 0x200) {
         musb_write[access](s->musb, addr, value);
-    else if (addr < 0x400)
+    } else if (addr < 0x400) {
         musb_write[access](s->musb, 0x20 + ((addr >> 3) & 0x3c), value);
-    else switch (addr) {
+    } else switch (addr) {
         case 0x400: /* OTG_REVISION */
         case 0x408: /* OTG_SYSSTATUS */
             OMAP_RO_REG(addr);
@@ -142,7 +147,7 @@ static void omap3_hsusb_otg_write(int access,
         case 0x404: /* OTG_SYSCONFIG */
             TRACE("OTG_SYSCONFIG = 0x%08x", value);
             if (value & 2) /* SOFTRESET */
-                omap3_hsusb_otg_reset(&s->busdev.qdev);
+                omap3_hsusb_otg_reset(DEVICE(s));
             s->sysconfig = value & 0x301f;
             break;
         case 0x40c: /* OTG_INTERFSEL */
@@ -151,7 +156,7 @@ static void omap3_hsusb_otg_write(int access,
             break;
         case 0x410: /* OTG_SIMENABLE */
             TRACE("OTG_SIMENABLE = 0x%08x", value);
-            cpu_abort(cpu_single_env,
+            qemu_log_mask(LOG_UNIMP,
                       "%s: USB simulation mode not supported\n",
                       __FUNCTION__);
             break;
@@ -222,18 +227,20 @@ static void omap3_hsusb_musb_core_intr(void *opaque, int source, int level)
     qemu_set_irq(s->mc_irq, level);
 }
 
-static int omap3_hsusb_otg_init(SysBusDevice *dev)
+static int omap3_hsusb_otg_init(SysBusDevice *sbd)
 {
-    OMAP3HSUSBOTGState *s = FROM_SYSBUS(OMAP3HSUSBOTGState, dev);
-    sysbus_init_irq(dev, &s->mc_irq);
-    sysbus_init_irq(dev, &s->dma_irq);
-    sysbus_init_irq(dev, &s->stdby_irq);
-    memory_region_init_io(&s->iomem, &omap3_hsusb_otg_ops, s,
+    OMAP3HSUSBOTGState *s = OMAP3_HSUSB_OTG(sbd);
+    DeviceState *dev = DEVICE(sbd);
+
+    sysbus_init_irq(sbd, &s->mc_irq);
+    sysbus_init_irq(sbd, &s->dma_irq);
+    sysbus_init_irq(sbd, &s->stdby_irq);
+    memory_region_init_io(&s->iomem, OBJECT(s), &omap3_hsusb_otg_ops, s,
                           "omap3_hsusb_otg", 0x1000);
-    sysbus_init_mmio(dev, &s->iomem);
-    qdev_init_gpio_in(&dev->qdev, omap3_hsusb_musb_core_intr, musb_irq_max);
-    s->musb = musb_init(&dev->qdev, 0);
-    vmstate_register(&dev->qdev, -1, &vmstate_omap3_hsusb_otg, s);
+    sysbus_init_mmio(sbd, &s->iomem);
+    qdev_init_gpio_in(dev, omap3_hsusb_musb_core_intr, musb_irq_max);
+    s->musb = musb_init(dev, 0);
+    vmstate_register(dev, -1, &vmstate_omap3_hsusb_otg, s);
     return 0;
 }
 
@@ -246,20 +253,25 @@ static void omap3_hsusb_otg_class_init(ObjectClass *klass, void *data)
 }
 
 static TypeInfo omap3_hsusb_otg_info = {
-    .name = "omap3_hsusb_otg",
+    .name = TYPE_OMAP3_HSUSB_OTG,
     .parent = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(OMAP3HSUSBOTGState),
     .class_init = omap3_hsusb_otg_class_init,
 };
 
-typedef struct omap3_hsusb_host_s {
-    SysBusDevice busdev;
+#define TYPE_OMAP3_HSUSB_HOST "omap3_hsusb_host"
+#define OMAP3_HSUSB_HOST(obj) OBJECT_CHECK(OMAP3HSUSBHostState, (obj), \
+                                           TYPE_OMAP3_HSUSB_HOST)
+
+typedef struct OMAP3HSUSBHostState {
+    SysBusDevice parent_obj;
+
     MemoryRegion tll_iomem;
     MemoryRegion host_iomem;
     MemoryRegion ehci_iomem;
     qemu_irq ehci_irq;
     qemu_irq tll_irq;
-    
+
     uint32_t uhh_sysconfig;
     uint32_t uhh_hostconfig;
     uint32_t uhh_debug_csr;
@@ -268,7 +280,7 @@ typedef struct omap3_hsusb_host_s {
 } OMAP3HSUSBHostState;
 
 static const VMStateDescription vmstate_omap3_hsusb_host = {
-    .name = "omap3_hsusb_host",
+    .name = TYPE_OMAP3_HSUSB_HOST,
     .version_id = 1,
     .minimum_version_id = 1,
     .minimum_version_id_old = 1,
@@ -284,8 +296,8 @@ static const VMStateDescription vmstate_omap3_hsusb_host = {
 
 static void omap3_hsusb_host_reset(DeviceState *dev)
 {
-    OMAP3HSUSBHostState *s = FROM_SYSBUS(OMAP3HSUSBHostState,
-                                         SYS_BUS_DEVICE(dev));
+    OMAP3HSUSBHostState *s = OMAP3_HSUSB_HOST(dev);
+
     s->uhh_sysconfig = 1;
     s->uhh_hostconfig = 0x700;
     s->uhh_debug_csr = 0x20;
@@ -330,7 +342,7 @@ static void omap3_hsusb_host_write(void *opaque, hwaddr addr,
         case 0x10: /* UHH_SYSCONFIG */
             s->uhh_sysconfig = value & 0x311d;
             if (value & 2) { /* SOFTRESET */
-                omap3_hsusb_host_reset(&s->busdev.qdev);
+                omap3_hsusb_host_reset(DEVICE(s));
             }
             break;
         case 0x40: /* UHH_HOSTCONFIG */
@@ -462,23 +474,24 @@ static const MemoryRegionOps omap3_hsusb_tll_ops = {
     .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
-static int omap3_hsusb_host_init(SysBusDevice *dev)
+static int omap3_hsusb_host_init(SysBusDevice *sbd)
 {
-    OMAP3HSUSBHostState *s = FROM_SYSBUS(OMAP3HSUSBHostState, dev);
-    sysbus_init_irq(dev, &s->ehci_irq);
-    sysbus_init_irq(dev, &s->tll_irq);
+    OMAP3HSUSBHostState *s = OMAP3_HSUSB_HOST(sbd);
 
-    memory_region_init_io(&s->tll_iomem, &omap3_hsusb_tll_ops, s,
+    sysbus_init_irq(sbd, &s->ehci_irq);
+    sysbus_init_irq(sbd, &s->tll_irq);
+
+    memory_region_init_io(&s->tll_iomem, OBJECT(s), &omap3_hsusb_tll_ops, s,
                               "omap_usb.tll", 0x1000);
-    memory_region_init_io(&s->host_iomem, &omap3_hsusb_host_ops, s,
+    memory_region_init_io(&s->host_iomem, OBJECT(s), &omap3_hsusb_host_ops, s,
                               "omap_usb.tll", 0x400);
-    memory_region_init_io(&s->ehci_iomem, &omap3_hsusb_ehci_ops, s,
+    memory_region_init_io(&s->ehci_iomem, OBJECT(s), &omap3_hsusb_ehci_ops, s,
                               "omap_usb.tll", 0x400);
-    sysbus_init_mmio(dev, &s->tll_iomem);
-    sysbus_init_mmio(dev, &s->host_iomem);
-    sysbus_init_mmio(dev, &s->ehci_iomem);
+    sysbus_init_mmio(sbd, &s->tll_iomem);
+    sysbus_init_mmio(sbd, &s->host_iomem);
+    sysbus_init_mmio(sbd, &s->ehci_iomem);
     /* OHCI is instantiated by omap3.c */
-    vmstate_register(&dev->qdev, -1, &vmstate_omap3_hsusb_host, s);
+    vmstate_register(DEVICE(s), -1, &vmstate_omap3_hsusb_host, s);
     return 0;
 }
 

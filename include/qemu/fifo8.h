@@ -86,6 +86,16 @@ bool fifo8_is_empty(Fifo8 *fifo);
 
 bool fifo8_is_full(Fifo8 *fifo);
 
+/**
+ * fifo8_num:
+ * @fifo: FIFO to check
+ *
+ * Return the number of bytes of data currently in the FIFO.
+ *
+ * Returns: number of bytes of data in FIFO.
+ */
+uint32_t fifo8_num(Fifo8 *fifo);
+
 extern const VMStateDescription vmstate_fifo8;
 
 #define VMSTATE_FIFO8(_field, _state) {                              \

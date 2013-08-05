@@ -709,7 +709,7 @@ static struct omap3_l3_s *omap3_l3_init(MemoryRegion *sysmem,
         base += omap3_l3_region[i].size;
     }
 
-    memory_region_init_io(&bus->iomem, &omap3_l3_ops, bus, "omap3_l3",
+    memory_region_init_io(&bus->iomem, NULL, &omap3_l3_ops, bus, "omap3_l3",
                           0x01000000);
     memory_region_add_subregion(sysmem, base, &bus->iomem);
     return bus;
@@ -1936,9 +1936,9 @@ static struct omap3_prm_s *omap3_prm_init(struct omap_target_agent_s *ta,
     s->omap = mpu;
     omap3_prm_reset(s);
 
-    memory_region_init_io(&s->iomem1, &omap3_prm_ops, s,
+    memory_region_init_io(&s->iomem1, NULL, &omap3_prm_ops, s,
                           "omap3_prm", omap_l4_region_size(ta, 0));
-    memory_region_init_alias(&s->iomem2, "omap3_prm2", &s->iomem1, 0,
+    memory_region_init_alias(&s->iomem2, NULL, "omap3_prm2", &s->iomem1, 0,
                              omap_l4_region_size(ta, 1));
     omap_l4_attach(ta, 0, &s->iomem1);
     omap_l4_attach(ta, 1, &s->iomem2);
@@ -3048,9 +3048,9 @@ static struct omap3_cm_s *omap3_cm_init(struct omap_target_agent_s *ta,
     s->mpu = mpu;
     omap3_cm_reset(s);
 
-    memory_region_init_io(&s->iomem1, &omap3_cm_ops, s,
+    memory_region_init_io(&s->iomem1, NULL, &omap3_cm_ops, s,
                           "omap3_cm", omap_l4_region_size(ta, 0));
-    memory_region_init_alias(&s->iomem2, "omap3_cm2", &s->iomem1, 0,
+    memory_region_init_alias(&s->iomem2, NULL, "omap3_cm2", &s->iomem1, 0,
                              omap_l4_region_size(ta, 1));
     omap_l4_attach(ta, 0, &s->iomem1);
     omap_l4_attach(ta, 1, &s->iomem2);
@@ -3355,7 +3355,7 @@ static struct omap3_wdt_s *omap3_mpu_wdt_init(struct omap_target_agent_s *ta,
     if (irq != NULL)
         omap3_wdt_clk_setup(s);
 
-    memory_region_init_io(&s->iomem, &omap3_mpu_wdt_ops, s,
+    memory_region_init_io(&s->iomem, NULL, &omap3_mpu_wdt_ops, s,
                           "omap3_mpu_wdt", omap_l4_region_size(ta, 0));
     omap_l4_attach(ta, 0, &s->iomem);
 
@@ -3682,7 +3682,7 @@ static struct omap3_scm_s *omap3_scm_init(struct omap_target_agent_s *ta,
 
     omap3_scm_reset(s);
 
-    memory_region_init_io(&s->iomem, &omap3_scm_ops, s,
+    memory_region_init_io(&s->iomem, NULL, &omap3_scm_ops, s,
                           "omap3_scm", omap_l4_region_size(ta, 0));
     omap_l4_attach(ta, 0, &s->iomem);
 
@@ -4007,7 +4007,8 @@ static struct omap3_sms_s *omap3_sms_init(MemoryRegion *sysmem,
 
     omap3_sms_reset(s);
 
-    memory_region_init_io(&s->iomem, &omap3_sms_ops, s, "omap3_sms", 0x10000);
+    memory_region_init_io(&s->iomem, NULL,
+                          &omap3_sms_ops, s, "omap3_sms", 0x10000);
     memory_region_add_subregion(sysmem, 0x6c000000, &s->iomem);
     return s;
 }
@@ -4078,9 +4079,9 @@ struct omap_mpu_state_s *omap3_mpu_init(MemoryRegion *sysmem,
     omap_clk_init(s);
 
     /* Memory-mapped stuff */
-    memory_region_init_ram(&s->sdram, "omap3_dram", s->sdram_size);
+    memory_region_init_ram(&s->sdram, NULL, "omap3_dram", s->sdram_size);
     memory_region_add_subregion(sysmem, OMAP3_Q2_BASE, &s->sdram);
-    memory_region_init_ram(&s->sram, "omap3_sram", s->sram_size);
+    memory_region_init_ram(&s->sram, NULL, "omap3_sram", s->sram_size);
     memory_region_add_subregion(sysmem, OMAP3_SRAM_BASE, &s->sram);
 
     s->l4 = omap_l4_init(sysmem, OMAP3_L4_BASE, L4A_COUNT, L4ID_COUNT);

@@ -1669,8 +1669,9 @@ static void omap_dma_request(void *opaque, int drq, int req)
             s->dma->drqst[drq] = 1;
             omap_dma_process_request(s, drq);
         }
-    } else
+    } else {
         s->dma->drqst[drq] = 0;
+    }
 }
 
 /* XXX: this won't be needed once soc_dma knows about clocks.  */
@@ -1789,7 +1790,7 @@ struct soc_dma_s *omap_dma_init(hwaddr base, qemu_irq *irqs,
     omap_dma_reset(s->dma);
     omap_dma_clk_update(s, 0, 1);
 
-    memory_region_init_io(&s->iomem, &omap_dma_ops, s, "omap.dma", memsize);
+    memory_region_init_io(&s->iomem, NULL, &omap_dma_ops, s, "omap.dma", memsize);
     memory_region_add_subregion(sysmem, base, &s->iomem);
 
     mpu->drq = s->dma->drq;
@@ -2281,7 +2282,8 @@ struct soc_dma_s *omap_dma4_init(hwaddr base, qemu_irq *irqs,
 {
     struct omap_dma_s *s = omap_dma4_init_internal(mpu, irqs, chans, 64,
                                                    iclk, fclk);
-    memory_region_init_io(&s->iomem, &omap_dma4_ops, s, "omap.dma4", 0x1000);
+    memory_region_init_io(&s->iomem, NULL, &omap_dma4_ops,
+                          s, "omap.dma4", 0x1000);
     memory_region_add_subregion(sysmem, base, &s->iomem);
 
     return s->dma;
@@ -2295,7 +2297,8 @@ struct soc_dma_s *omap3_dma4_init(struct omap_target_agent_s *ta,
 {
     struct omap_dma_s *s = omap_dma4_init_internal(mpu, irqs, chans, 96,
                                                    iclk, fclk);
-    memory_region_init_io(&s->iomem, &omap_dma4_ops, s, "omap.dma4", 0x1000);
+    memory_region_init_io(&s->iomem, NULL, &omap_dma4_ops,
+                          s, "omap.dma4", 0x1000);
     omap_l4_attach(ta, 0, &s->iomem);
     return s->dma;
 }

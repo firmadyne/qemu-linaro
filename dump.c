@@ -21,6 +21,7 @@
 #include "sysemu/dump.h"
 #include "sysemu/sysemu.h"
 #include "sysemu/memory_mapping.h"
+#include "sysemu/cpus.h"
 #include "qapi/error.h"
 #include "qmp-commands.h"
 
@@ -274,13 +275,11 @@ static inline int cpu_index(CPUState *cpu)
 
 static int write_elf64_notes(DumpState *s)
 {
-    CPUArchState *env;
     CPUState *cpu;
     int ret;
     int id;
 
-    for (env = first_cpu; env != NULL; env = env->next_cpu) {
-        cpu = ENV_GET_CPU(env);
+    for (cpu = first_cpu; cpu != NULL; cpu = cpu->next_cpu) {
         id = cpu_index(cpu);
         ret = cpu_write_elf64_note(fd_write_vmcore, cpu, id, s);
         if (ret < 0) {
@@ -289,7 +288,7 @@ static int write_elf64_notes(DumpState *s)
         }
     }
 
-    for (env = first_cpu; env != NULL; env = env->next_cpu) {
+    for (cpu = first_cpu; cpu != NULL; cpu = cpu->next_cpu) {
         ret = cpu_write_elf64_qemunote(fd_write_vmcore, cpu, s);
         if (ret < 0) {
             dump_error(s, "dump: failed to write CPU status.\n");
@@ -326,13 +325,11 @@ static int write_elf32_note(DumpState *s)
 
 static int write_elf32_notes(DumpState *s)
 {
-    CPUArchState *env;
     CPUState *cpu;
     int ret;
     int id;
 
-    for (env = first_cpu; env != NULL; env = env->next_cpu) {
-        cpu = ENV_GET_CPU(env);
+    for (cpu = first_cpu; cpu != NULL; cpu = cpu->next_cpu) {
         id = cpu_index(cpu);
         ret = cpu_write_elf32_note(fd_write_vmcore, cpu, id, s);
         if (ret < 0) {
@@ -341,7 +338,7 @@ static int write_elf32_notes(DumpState *s)
         }
     }
 
-    for (env = first_cpu; env != NULL; env = env->next_cpu) {
+    for (cpu = first_cpu; cpu != NULL; cpu = cpu->next_cpu) {
         ret = cpu_write_elf32_qemunote(fd_write_vmcore, cpu, s);
         if (ret < 0) {
             dump_error(s, "dump: failed to write CPU status.\n");
@@ -704,8 +701,9 @@ static ram_addr_t get_start_block(DumpState *s)
 static int dump_init(DumpState *s, int fd, bool paging, bool has_filter,
                      int64_t begin, int64_t length, Error **errp)
 {
-    CPUArchState *env;
+    CPUState *cpu;
     int nr_cpus;
+    Error *err = NULL;
     int ret;
 
     if (runstate_is_running()) {
@@ -731,12 +729,12 @@ static int dump_init(DumpState *s, int fd, bool paging, bool has_filter,
      * If the target architecture is not supported, cpu_get_dump_info() will
      * return -1.
      *
-     * if we use kvm, we should synchronize the register before we get dump
+     * If we use KVM, we should synchronize the registers before we get dump
      * info.
      */
+    cpu_synchronize_all_states();
     nr_cpus = 0;
-    for (env = first_cpu; env != NULL; env = env->next_cpu) {
-        cpu_synchronize_state(env);
+    for (cpu = first_cpu; cpu != NULL; cpu = cpu->next_cpu) {
         nr_cpus++;
     }
 
@@ -756,7 +754,11 @@ static int dump_init(DumpState *s, int fd, bool paging, bool has_filter,
     /* get memory mapping */
     memory_mapping_list_init(&s->list);
     if (paging) {
-        qemu_get_guest_memory_mapping(&s->list);
+        qemu_get_guest_memory_mapping(&s->list, &err);
+        if (err != NULL) {
+            error_propagate(errp, err);
+            goto cleanup;
+        }
     } else {
         qemu_get_guest_simple_memory_mapping(&s->list);
     }
@@ -847,7 +849,7 @@ void qmp_dump_guest_memory(bool paging, const char *file, bool has_begin,
     if  (strstart(file, "file:", &p)) {
         fd = qemu_open(p, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, S_IRUSR);
         if (fd < 0) {
-            error_set(errp, QERR_OPEN_FILE_FAILED, p);
+            error_setg_file_open(errp, errno, p);
             return;
         }
     }

@@ -493,6 +493,19 @@ out:
     return NULL;
 }
 
+static int qemu_gluster_truncate(BlockDriverState *bs, int64_t offset)
+{
+    int ret;
+    BDRVGlusterState *s = bs->opaque;
+
+    ret = glfs_ftruncate(s->fd, offset);
+    if (ret < 0) {
+        return -errno;
+    }
+
+    return 0;
+}
+
 static BlockDriverAIOCB *qemu_gluster_aio_readv(BlockDriverState *bs,
         int64_t sector_num, QEMUIOVector *qiov, int nb_sectors,
         BlockDriverCompletionFunc *cb, void *opaque)
@@ -531,6 +544,39 @@ out:
     qemu_aio_release(acb);
     return NULL;
 }
+
+#ifdef CONFIG_GLUSTERFS_DISCARD
+static BlockDriverAIOCB *qemu_gluster_aio_discard(BlockDriverState *bs,
+        int64_t sector_num, int nb_sectors, BlockDriverCompletionFunc *cb,
+        void *opaque)
+{
+    int ret;
+    GlusterAIOCB *acb;
+    BDRVGlusterState *s = bs->opaque;
+    size_t size;
+    off_t offset;
+
+    offset = sector_num * BDRV_SECTOR_SIZE;
+    size = nb_sectors * BDRV_SECTOR_SIZE;
+
+    acb = qemu_aio_get(&gluster_aiocb_info, bs, cb, opaque);
+    acb->size = 0;
+    acb->ret = 0;
+    acb->finished = NULL;
+    s->qemu_aio_count++;
+
+    ret = glfs_discard_async(s->fd, offset, size, &gluster_finish_aiocb, acb);
+    if (ret < 0) {
+        goto out;
+    }
+    return &acb->common;
+
+out:
+    s->qemu_aio_count--;
+    qemu_aio_release(acb);
+    return NULL;
+}
+#endif
 
 static int64_t qemu_gluster_getlength(BlockDriverState *bs)
 {
@@ -574,6 +620,12 @@ static void qemu_gluster_close(BlockDriverState *bs)
     glfs_fini(s->glfs);
 }
 
+static int qemu_gluster_has_zero_init(BlockDriverState *bs)
+{
+    /* GlusterFS volume could be backed by a block device */
+    return 0;
+}
+
 static QEMUOptionParameter qemu_gluster_create_options[] = {
     {
         .name = BLOCK_OPT_SIZE,
@@ -592,9 +644,14 @@ static BlockDriver bdrv_gluster = {
     .bdrv_create                  = qemu_gluster_create,
     .bdrv_getlength               = qemu_gluster_getlength,
     .bdrv_get_allocated_file_size = qemu_gluster_allocated_file_size,
+    .bdrv_truncate                = qemu_gluster_truncate,
     .bdrv_aio_readv               = qemu_gluster_aio_readv,
     .bdrv_aio_writev              = qemu_gluster_aio_writev,
     .bdrv_aio_flush               = qemu_gluster_aio_flush,
+    .bdrv_has_zero_init           = qemu_gluster_has_zero_init,
+#ifdef CONFIG_GLUSTERFS_DISCARD
+    .bdrv_aio_discard             = qemu_gluster_aio_discard,
+#endif
     .create_options               = qemu_gluster_create_options,
 };
 
@@ -607,9 +664,14 @@ static BlockDriver bdrv_gluster_tcp = {
     .bdrv_create                  = qemu_gluster_create,
     .bdrv_getlength               = qemu_gluster_getlength,
     .bdrv_get_allocated_file_size = qemu_gluster_allocated_file_size,
+    .bdrv_truncate                = qemu_gluster_truncate,
     .bdrv_aio_readv               = qemu_gluster_aio_readv,
     .bdrv_aio_writev              = qemu_gluster_aio_writev,
     .bdrv_aio_flush               = qemu_gluster_aio_flush,
+    .bdrv_has_zero_init           = qemu_gluster_has_zero_init,
+#ifdef CONFIG_GLUSTERFS_DISCARD
+    .bdrv_aio_discard             = qemu_gluster_aio_discard,
+#endif
     .create_options               = qemu_gluster_create_options,
 };
 
@@ -622,9 +684,14 @@ static BlockDriver bdrv_gluster_unix = {
     .bdrv_create                  = qemu_gluster_create,
     .bdrv_getlength               = qemu_gluster_getlength,
     .bdrv_get_allocated_file_size = qemu_gluster_allocated_file_size,
+    .bdrv_truncate                = qemu_gluster_truncate,
     .bdrv_aio_readv               = qemu_gluster_aio_readv,
     .bdrv_aio_writev              = qemu_gluster_aio_writev,
     .bdrv_aio_flush               = qemu_gluster_aio_flush,
+    .bdrv_has_zero_init           = qemu_gluster_has_zero_init,
+#ifdef CONFIG_GLUSTERFS_DISCARD
+    .bdrv_aio_discard             = qemu_gluster_aio_discard,
+#endif
     .create_options               = qemu_gluster_create_options,
 };
 
@@ -637,9 +704,14 @@ static BlockDriver bdrv_gluster_rdma = {
     .bdrv_create                  = qemu_gluster_create,
     .bdrv_getlength               = qemu_gluster_getlength,
     .bdrv_get_allocated_file_size = qemu_gluster_allocated_file_size,
+    .bdrv_truncate                = qemu_gluster_truncate,
     .bdrv_aio_readv               = qemu_gluster_aio_readv,
     .bdrv_aio_writev              = qemu_gluster_aio_writev,
     .bdrv_aio_flush               = qemu_gluster_aio_flush,
+    .bdrv_has_zero_init           = qemu_gluster_has_zero_init,
+#ifdef CONFIG_GLUSTERFS_DISCARD
+    .bdrv_aio_discard             = qemu_gluster_aio_discard,
+#endif
     .create_options               = qemu_gluster_create_options,
 };
 

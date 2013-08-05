@@ -24,6 +24,9 @@
 #include "ui/console.h"
 #include "hw/dsi.h"
 
+#define TYPE_OMAP_DSS "omap_dss"
+#define OMAP_DSS(obj) OBJECT_CHECK(struct omap_dss_s, (obj), TYPE_OMAP_DSS)
+
 //#define OMAP_DSS_DEBUG
 #define OMAP_DSS_DEBUG_DISPC
 #define OMAP_DSS_DEBUG_DISS
@@ -324,8 +327,8 @@ static void omap_dss_framedone(void *opaque)
 
 static void omap_dsi_te_trigger(DeviceState *dev, int vc)
 {
-    struct omap_dss_s *s = FROM_SYSBUS(struct omap_dss_s,
-                                       SYS_BUS_DEVICE(dev));
+    struct omap_dss_s *s = OMAP_DSS(dev);
+
     if ((s->dsi.ctrl & 1) &&        /* IF_EN */
         (s->dsi.vc[vc].ctrl & 1)) { /* VC_EN */
         s->dsi.irqst |= 1 << 16;    /* TE_TRIGGER_IRQ */
@@ -717,8 +720,8 @@ static void omap_dss_reset(DeviceState *dev)
 {
     int i, j;
 
-    struct omap_dss_s *s = FROM_SYSBUS(struct omap_dss_s,
-                                       SYS_BUS_DEVICE(dev));
+    struct omap_dss_s *s = OMAP_DSS(dev);
+
     s->autoidle = 0x10; /* was 0 for OMAP2 but bit4 must be set for OMAP3 */
     s->control = 0;
     if (s->mpu_model == omap3430) {
@@ -894,7 +897,7 @@ static void omap_diss_write(void *opaque, hwaddr addr,
     case 0x10:	/* DSS_SYSCONFIG */
         TRACEDISS("DSS_SYSCONFIG = 0x%08x", value);
         if (value & 2) { /* SOFTRESET */
-            omap_dss_reset(&s->busdev.qdev);
+            omap_dss_reset(DEVICE(s));
         }
         if (s->mpu_model < omap3430) {
             value &= 0x01;
@@ -1224,7 +1227,7 @@ static void omap_disc_write(void *opaque, hwaddr addr,
     case 0x010:	/* DISPC_SYSCONFIG */
         TRACEDISPC("DISPC_SYSCONFIG = 0x%08x", value);
         if (value & 2) { /* SOFTRESET */
-            omap_dss_reset(&s->busdev.qdev);
+            omap_dss_reset(DEVICE(s));
         }
         s->dispc.idlemode = value & ((s->dispc.rev < 0x30) ? 0x301b : 0x331f);
         break;
@@ -2487,17 +2490,19 @@ static const MemoryRegionOps omap_dsi_ops = {
 
 static int omap_dss_init(SysBusDevice *dev)
 {
-    struct omap_dss_s *s = FROM_SYSBUS(struct omap_dss_s, dev);
+    struct omap_dss_s *s = OMAP_DSS(dev);
+    Object *obj = OBJECT(dev);
+
     sysbus_init_irq(dev, &s->irq);
     sysbus_init_irq(dev, &s->drq); /* linetrigger */
 
-    memory_region_init_io(&s->iomem_diss1, &omap_diss_ops, s,
+    memory_region_init_io(&s->iomem_diss1, obj, &omap_diss_ops, s,
                           "omap.diss1", 0x400);
-    memory_region_init_io(&s->iomem_disc1, &omap_disc_ops, s,
+    memory_region_init_io(&s->iomem_disc1, obj, &omap_disc_ops, s,
                           "omap.disc1", 0x400);
-    memory_region_init_io(&s->iomem_rfbi1, &omap_rfbi_ops, s,
+    memory_region_init_io(&s->iomem_rfbi1, obj, &omap_rfbi_ops, s,
                           "omap.rfbi1", 0x400);
-    memory_region_init_io(&s->iomem_venc1, &omap_venc_ops, s,
+    memory_region_init_io(&s->iomem_venc1, obj, &omap_venc_ops, s,
                           "omap.venc1", 0x400);
     sysbus_init_mmio(dev, &s->iomem_diss1);
     sysbus_init_mmio(dev, &s->iomem_disc1);
@@ -2508,18 +2513,18 @@ static int omap_dss_init(SysBusDevice *dev)
         hw_error("%s: unsupported cpu type\n", __FUNCTION__);
     } else if (s->mpu_model < omap3430) {
         s->dispc.rev = 0x20;
-        memory_region_init_io(&s->iomem_im3, &omap_im3_ops, s,
+        memory_region_init_io(&s->iomem_im3, obj, &omap_im3_ops, s,
                               "omap.im3", 0x1000);
         sysbus_init_mmio(dev, &s->iomem_im3);
     } else {
         s->dispc.rev = 0x30;
         s->dispc.lcdframer = qemu_new_timer_ns(vm_clock, omap_dss_framedone, s);
-        s->dsi.host = dsi_init_host(&dev->qdev, "omap3_dsi",
+        s->dsi.host = dsi_init_host(DEVICE(s), "omap3_dsi",
                                     omap_dsi_te_trigger,
                                     omap_dss_linefn);
         s->dsi.xfer_timer = qemu_new_timer_ns(vm_clock, omap_dsi_transfer_stop,
                                            s);
-        memory_region_init_io(&s->iomem_dsi, &omap_dsi_ops, s,
+        memory_region_init_io(&s->iomem_dsi, obj, &omap_dsi_ops, s,
                               "omap.dsi", 0x400);
         sysbus_init_mmio(dev, &s->iomem_dsi);
         sysbus_init_irq(dev, &s->dsi.drq[0]);
@@ -2545,7 +2550,7 @@ static void omap_dss_class_init(ObjectClass *klass, void *data)
 }
 
 static TypeInfo omap_dss_info = {
-    .name = "omap_dss",
+    .name = TYPE_OMAP_DSS,
     .parent = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(struct omap_dss_s),
     .class_init = omap_dss_class_init,
@@ -2559,8 +2564,8 @@ static void omap_dss_register_types(void)
 void omap_rfbi_attach(DeviceState *dev, int cs,
                       const struct rfbi_chip_s *chip)
 {
-    struct omap_dss_s *s = FROM_SYSBUS(struct omap_dss_s,
-                                       SYS_BUS_DEVICE(dev));
+    struct omap_dss_s *s = OMAP_DSS(dev);
+
     if (cs < 0 || cs > 1) {
         hw_error("%s: wrong CS %i\n", __FUNCTION__, cs);
     }
@@ -2573,8 +2578,9 @@ void omap_rfbi_attach(DeviceState *dev, int cs,
 
 DSIHost *omap_dsi_host(DeviceState *dev)
 {
-    return FROM_SYSBUS(struct omap_dss_s,
-                       SYS_BUS_DEVICE(dev))->dsi.host;
+    struct omap_dss_s *s = OMAP_DSS(dev);
+
+    return s->dsi.host;
 }
 
 static const GraphicHwOps omap_lcd_panel_ops = {
@@ -2589,8 +2595,8 @@ static const GraphicHwOps omap_digital_panel_ops = {
 
 void omap_lcd_panel_attach(DeviceState *dev)
 {
-    struct omap_dss_s *s = FROM_SYSBUS(struct omap_dss_s,
-                                       SYS_BUS_DEVICE(dev));
+    struct omap_dss_s *s = OMAP_DSS(dev);
+
     if (!s->lcd.attached) {
         s->lcd.attached = 1;
         s->lcd.invalidate = 1;
@@ -2600,8 +2606,8 @@ void omap_lcd_panel_attach(DeviceState *dev)
 
 void omap_digital_panel_attach(DeviceState *dev)
 {
-    struct omap_dss_s *s = FROM_SYSBUS(struct omap_dss_s,
-                                       SYS_BUS_DEVICE(dev));
+    struct omap_dss_s *s = OMAP_DSS(dev);
+
     if (!s->dig.attached) {
         s->dig.attached = 1;
         s->dig.invalidate = 1;

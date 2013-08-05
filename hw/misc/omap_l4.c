@@ -137,7 +137,7 @@ struct omap_target_agent_s *omap2_l4ta_init(struct omap_l4_s *bus,
     ta->status = 0x00000000;
     ta->control = 0x00000200;	/* XXX 01000200 for L4TAO */
 
-    memory_region_init_io(&ta->iomem, &omap_l4ta_ops, ta, "omap.l4ta",
+    memory_region_init_io(&ta->iomem, NULL, &omap_l4ta_ops, ta, "omap.l4ta",
                           omap_l4_region_size(ta, info->ta_region));
     omap_l4_attach(ta, info->ta_region, &ta->iomem);
 

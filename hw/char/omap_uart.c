@@ -24,6 +24,9 @@
 #include "exec/address-spaces.h"
 #include "hw/sysbus.h"
 
+#define TYPE_OMAP_UART "omap_uart"
+#define OMAP_UART(obj) OBJECT_CHECK(omap_uart_s, (obj), TYPE_OMAP_UART)
+
 /* The OMAP UART functionality is similar to the TI16C752; it is
  * an enhanced version of the 16550A and we piggy-back on the 16550
  * model.
@@ -37,7 +40,7 @@
  *  + UASR auto-baudrate-detection
  */
 
-struct omap_uart_s {
+typedef struct omap_uart_s {
     SysBusDevice busdev;
     MemoryRegion iomem;
     CharDriverState *chr;
@@ -71,7 +74,7 @@ struct omap_uart_s {
     uint8_t tcr;
     uint8_t tlr;
     uint8_t xon[2], xoff[2];
-};
+} omap_uart_s;
 
 static int tcr_tlr_mode(struct omap_uart_s *s)
 {
@@ -83,8 +86,8 @@ static int tcr_tlr_mode(struct omap_uart_s *s)
 
 static void omap_uart_reset(DeviceState *qdev)
 {
-    struct omap_uart_s *s = FROM_SYSBUS(struct omap_uart_s,
-                                        SYS_BUS_DEVICE(qdev));
+    struct omap_uart_s *s = OMAP_UART(qdev);
+
     s->eblr = 0x00;
     s->syscontrol = 0;
     s->wkup = 0x3f;
@@ -288,7 +291,7 @@ static void omap_uart_write(void *opaque, hwaddr addr,
         s->syscontrol = value & 0x1d;
         if (value & 2) {
             /* TODO: reset s->serial also. */
-            omap_uart_reset(&s->busdev.qdev);
+            omap_uart_reset(DEVICE(s));
         }
         break;
     case 0x58:	/* SYSS (OMAP2) */
@@ -313,9 +316,11 @@ static const MemoryRegionOps omap_uart_ops = {
 
 static int omap_uart_init(SysBusDevice *busdev)
 {
-    struct omap_uart_s *s = FROM_SYSBUS(struct omap_uart_s, busdev);
+    struct omap_uart_s *s = OMAP_UART(busdev);
+
     if (!s->chr) {
-        s->chr = qemu_chr_new(busdev->qdev.id, "null", NULL);
+        // XXX looks a bit dubious to grab id like this
+        s->chr = qemu_chr_new(DEVICE(busdev)->id, "null", NULL);
     }
     /* TODO: DMA support. Current 16550A emulation does not emulate DMA mode
      * transfers via TXRDY/RXRDY pins. We create DMA irq lines here for
@@ -329,7 +334,7 @@ static int omap_uart_init(SysBusDevice *busdev)
     sysbus_init_irq(busdev, serial_get_irq(s->serial));
     sysbus_init_irq(busdev, &s->tx_drq);
     sysbus_init_irq(busdev, &s->rx_drq);
-    memory_region_init_io(&s->iomem, &omap_uart_ops, s, "omap_uart",
+    memory_region_init_io(&s->iomem, NULL, &omap_uart_ops, s, "omap_uart",
                           s->mmio_size);
     sysbus_init_mmio(busdev, &s->iomem);
     return 0;
@@ -367,8 +372,8 @@ static void omap_uart_register_types(void)
 void omap_uart_attach(DeviceState *qdev, CharDriverState *chr,
                       const char *label)
 {
-    struct omap_uart_s *s = FROM_SYSBUS(struct omap_uart_s,
-                                        SYS_BUS_DEVICE(qdev));
+    struct omap_uart_s *s = OMAP_UART(qdev);
+
     s->chr = chr ?: qemu_chr_new(label, "null", NULL);
     serial_change_char_driver(s->serial, s->chr);
 }

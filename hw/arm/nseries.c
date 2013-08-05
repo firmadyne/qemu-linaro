@@ -2549,7 +2549,7 @@ static void n900_init(QEMUMachineInitArgs *args)
         //qemu_irq_raise(omap2_gpio_in_get(s->cpu->gpif, N900_SDCOVER_GPIO));
     }
 
-    memory_region_init_io(ssi_iomem, &ssi_ops, 0, "n900_ssi", 0x3c00);
+    memory_region_init_io(ssi_iomem, NULL, &ssi_ops, 0, "n900_ssi", 0x3c00);
     memory_region_add_subregion(sysmem, 0x48058000, ssi_iomem);
 
     s->twl4030 = twl4030_init(omap_i2c_bus(s->cpu->i2c[0]),

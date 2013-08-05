@@ -54,7 +54,7 @@ DSIHost *dsi_init_host(DeviceState *parent, const char *name,
                        dsi_te_trigger_cb te_trigger_cb,
                        dsi_get_drawfn_cb get_drawfn_cb)
 {
-    DSIHost *host = FROM_QBUS(DSIHost, qbus_create(TYPE_DSI_BUS, parent, name));
+    DSIHost *host = DSI_BUS(qbus_create(TYPE_DSI_BUS, parent, name));
     host->te_trigger = te_trigger_cb;
     host->get_drawfn = get_drawfn_cb;
     return host;

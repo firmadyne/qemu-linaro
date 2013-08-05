@@ -81,6 +81,7 @@ typedef struct BDRVCURLState {
     CURLState states[CURL_NUM_STATES];
     char *url;
     size_t readahead_size;
+    bool accept_range;
 } BDRVCURLState;
 
 static void curl_clean_state(CURLState *s);
@@ -110,14 +111,15 @@ static int curl_sock_cb(CURL *curl, curl_socket_t fd, int action,
     return 0;
 }
 
-static size_t curl_size_cb(void *ptr, size_t size, size_t nmemb, void *opaque)
+static size_t curl_header_cb(void *ptr, size_t size, size_t nmemb, void *opaque)
 {
-    CURLState *s = ((CURLState*)opaque);
+    BDRVCURLState *s = opaque;
     size_t realsize = size * nmemb;
-    size_t fsize;
+    const char *accept_line = "Accept-Ranges: bytes";
 
-    if(sscanf(ptr, "Content-Length: %zd", &fsize) == 1) {
-        s->s->len = fsize;
+    if (realsize >= strlen(accept_line)
+        && strncmp((char *)ptr, accept_line, strlen(accept_line)) == 0) {
+        s->accept_range = true;
     }
 
     return realsize;
@@ -406,6 +408,12 @@ static int curl_open(BlockDriverState *bs, QDict *options, int flags)
 
     static int inited = 0;
 
+    if (flags & BDRV_O_RDWR) {
+        qerror_report(ERROR_CLASS_GENERIC_ERROR,
+                      "curl block device does not support writes");
+        return -EROFS;
+    }
+
     opts = qemu_opts_create_nofail(&runtime_opts);
     qemu_opts_absorb_qdict(opts, options, &local_err);
     if (error_is_set(&local_err)) {
@@ -441,17 +449,25 @@ static int curl_open(BlockDriverState *bs, QDict *options, int flags)
 
     // Get file size
 
+    s->accept_range = false;
     curl_easy_setopt(state->curl, CURLOPT_NOBODY, 1);
-    curl_easy_setopt(state->curl, CURLOPT_WRITEFUNCTION, (void *)curl_size_cb);
+    curl_easy_setopt(state->curl, CURLOPT_HEADERFUNCTION,
+                     curl_header_cb);
+    curl_easy_setopt(state->curl, CURLOPT_HEADERDATA, s);
     if (curl_easy_perform(state->curl))
         goto out;
     curl_easy_getinfo(state->curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD, &d);
-    curl_easy_setopt(state->curl, CURLOPT_WRITEFUNCTION, (void *)curl_read_cb);
-    curl_easy_setopt(state->curl, CURLOPT_NOBODY, 0);
     if (d)
         s->len = (size_t)d;
     else if(!s->len)
         goto out;
+    if ((!strncasecmp(s->url, "http://", strlen("http://"))
+        || !strncasecmp(s->url, "https://", strlen("https://")))
+        && !s->accept_range) {
+        pstrcpy(state->errmsg, CURL_ERROR_SIZE,
+                "Server does not support 'range' (byte ranges).");
+        goto out;
+    }
     DPRINTF("CURL: Size = %zd\n", s->len);
 
     curl_clean_state(state);
@@ -462,8 +478,8 @@ static int curl_open(BlockDriverState *bs, QDict *options, int flags)
     // initialize the multi interface!
 
     s->multi = curl_multi_init();
-    curl_multi_setopt( s->multi, CURLMOPT_SOCKETDATA, s); 
-    curl_multi_setopt( s->multi, CURLMOPT_SOCKETFUNCTION, curl_sock_cb ); 
+    curl_multi_setopt(s->multi, CURLMOPT_SOCKETDATA, s);
+    curl_multi_setopt(s->multi, CURLMOPT_SOCKETFUNCTION, curl_sock_cb);
     curl_multi_do(s);
 
     qemu_opts_del(opts);

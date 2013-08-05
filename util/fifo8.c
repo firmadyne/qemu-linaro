@@ -65,6 +65,11 @@ bool fifo8_is_full(Fifo8 *fifo)
     return (fifo->num == fifo->capacity);
 }
 
+uint32_t fifo8_num(Fifo8 *fifo)
+{
+    return fifo->num;
+}
+
 const VMStateDescription vmstate_fifo8 = {
     .name = "Fifo8",
     .version_id = 1,

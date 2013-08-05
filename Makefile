@@ -146,10 +146,11 @@ $(SRC_PATH)/pixman/configure:
 	(cd $(SRC_PATH)/pixman; autoreconf -v --install)
 
 DTC_MAKE_ARGS=-I$(SRC_PATH)/dtc VPATH=$(SRC_PATH)/dtc -C dtc V="$(V)" LIBFDT_srcdir=$(SRC_PATH)/dtc/libfdt
-DTC_CFLAGS=$(CFLAGS) $(QEMU_CFLAGS) -I$(BUILD_DIR)/dtc -I$(SRC_PATH)/dtc -I$(SRC_PATH)/dtc/libfdt
+DTC_CFLAGS=$(CFLAGS) $(QEMU_CFLAGS)
+DTC_CPPFLAGS=-I$(BUILD_DIR)/dtc -I$(SRC_PATH)/dtc -I$(SRC_PATH)/dtc/libfdt
 
 subdir-dtc:dtc/libfdt dtc/tests
-	$(call quiet-command,$(MAKE) $(DTC_MAKE_ARGS) CFLAGS="$(DTC_CFLAGS)" LDFLAGS="$(LDFLAGS)" ARFLAGS="$(ARFLAGS)" CC="$(CC)" AR="$(AR)" LD="$(LD)" $(SUBDIR_MAKEFLAGS) libfdt/libfdt.a,)
+	$(call quiet-command,$(MAKE) $(DTC_MAKE_ARGS) CPPFLAGS="$(DTC_CPPFLAGS)" CFLAGS="$(DTC_CFLAGS)" LDFLAGS="$(LDFLAGS)" ARFLAGS="$(ARFLAGS)" CC="$(CC)" AR="$(AR)" LD="$(LD)" $(SUBDIR_MAKEFLAGS) libfdt/libfdt.a,)
 
 dtc/%:
 	mkdir -p $@
@@ -178,7 +179,7 @@ Makefile: $(version-obj-y) $(version-lobj-y)
 # Build libraries
 
 libqemustub.a: $(stub-obj-y)
-libqemuutil.a: $(util-obj-y)
+libqemuutil.a: $(util-obj-y) qapi-types.o qapi-visit.o
 
 ######################################################################
 
@@ -186,7 +187,7 @@ qemu-img.o: qemu-img-cmds.h
 
 qemu-img$(EXESUF): qemu-img.o $(block-obj-y) libqemuutil.a libqemustub.a
 qemu-nbd$(EXESUF): qemu-nbd.o $(block-obj-y) libqemuutil.a libqemustub.a
-qemu-io$(EXESUF): qemu-io.o cmd.o $(block-obj-y) libqemuutil.a libqemustub.a
+qemu-io$(EXESUF): qemu-io.o $(block-obj-y) libqemuutil.a libqemustub.a
 
 qemu-bridge-helper$(EXESUF): qemu-bridge-helper.o
 
@@ -215,10 +216,10 @@ $(SRC_PATH)/qga/qapi-schema.json $(SRC_PATH)/scripts/qapi-commands.py $(qapi-py)
 
 qapi-types.c qapi-types.h :\
 $(SRC_PATH)/qapi-schema.json $(SRC_PATH)/scripts/qapi-types.py $(qapi-py)
-	$(call quiet-command,$(PYTHON) $(SRC_PATH)/scripts/qapi-types.py $(gen-out-type) -o "." < $<, "  GEN   $@")
+	$(call quiet-command,$(PYTHON) $(SRC_PATH)/scripts/qapi-types.py $(gen-out-type) -o "." -b < $<, "  GEN   $@")
 qapi-visit.c qapi-visit.h :\
 $(SRC_PATH)/qapi-schema.json $(SRC_PATH)/scripts/qapi-visit.py $(qapi-py)
-	$(call quiet-command,$(PYTHON) $(SRC_PATH)/scripts/qapi-visit.py $(gen-out-type) -o "."  < $<, "  GEN   $@")
+	$(call quiet-command,$(PYTHON) $(SRC_PATH)/scripts/qapi-visit.py $(gen-out-type) -o "." -b < $<, "  GEN   $@")
 qmp-commands.h qmp-marshal.c :\
 $(SRC_PATH)/qapi-schema.json $(SRC_PATH)/scripts/qapi-commands.py $(qapi-py)
 	$(call quiet-command,$(PYTHON) $(SRC_PATH)/scripts/qapi-commands.py $(gen-out-type) -m -o "." < $<, "  GEN   $@")
@@ -289,7 +290,7 @@ pxe-e1000.rom pxe-eepro100.rom pxe-ne2k_pci.rom \
 pxe-pcnet.rom pxe-rtl8139.rom pxe-virtio.rom \
 efi-e1000.rom efi-eepro100.rom efi-ne2k_pci.rom \
 efi-pcnet.rom efi-rtl8139.rom efi-virtio.rom \
-qemu-icon.bmp \
+qemu-icon.bmp qemu_logo_no_text.svg \
 bamboo.dtb petalogix-s3adsp1800.dtb petalogix-ml605.dtb \
 multiboot.bin linuxboot.bin kvmvapic.bin \
 s390-zipl.rom \
@@ -306,9 +307,12 @@ install-doc: $(DOCS)
 	$(INSTALL_DATA) QMP/qmp-commands.txt "$(DESTDIR)$(qemu_docdir)"
 ifdef CONFIG_POSIX
 	$(INSTALL_DIR) "$(DESTDIR)$(mandir)/man1"
-	$(INSTALL_DATA) qemu.1 qemu-img.1 "$(DESTDIR)$(mandir)/man1"
+	$(INSTALL_DATA) qemu.1 "$(DESTDIR)$(mandir)/man1"
+ifneq ($(TOOLS),)
+	$(INSTALL_DATA) qemu-img.1 "$(DESTDIR)$(mandir)/man1"
 	$(INSTALL_DIR) "$(DESTDIR)$(mandir)/man8"
 	$(INSTALL_DATA) qemu-nbd.8 "$(DESTDIR)$(mandir)/man8"
+endif
 endif
 ifdef CONFIG_VIRTFS
 	$(INSTALL_DIR) "$(DESTDIR)$(mandir)/man1"
@@ -318,13 +322,21 @@ endif
 install-datadir:
 	$(INSTALL_DIR) "$(DESTDIR)$(qemu_datadir)"
 
+install-localstatedir:
+ifdef CONFIG_POSIX
+ifneq (,$(findstring qemu-ga,$(TOOLS)))
+	$(INSTALL_DIR) "$(DESTDIR)$(qemu_localstatedir)"/run
+endif
+endif
+
 install-confdir:
 	$(INSTALL_DIR) "$(DESTDIR)$(qemu_confdir)"
 
 install-sysconfig: install-datadir install-confdir
 	$(INSTALL_DATA) $(SRC_PATH)/sysconfigs/target/target-x86_64.conf "$(DESTDIR)$(qemu_confdir)"
 
-install: all $(if $(BUILD_DOCS),install-doc) install-sysconfig install-datadir
+install: all $(if $(BUILD_DOCS),install-doc) install-sysconfig \
+install-datadir install-localstatedir
 	$(INSTALL_DIR) "$(DESTDIR)$(bindir)"
 ifneq ($(TOOLS),)
 	$(INSTALL_PROG) $(STRIP_OPT) $(TOOLS) "$(DESTDIR)$(bindir)"
@@ -425,6 +437,61 @@ pdf: qemu-doc.pdf qemu-tech.pdf
 qemu-doc.dvi qemu-doc.html qemu-doc.info qemu-doc.pdf: \
 	qemu-img.texi qemu-nbd.texi qemu-options.texi \
 	qemu-monitor.texi qemu-img-cmds.texi
+
+ifdef CONFIG_WIN32
+
+INSTALLER = qemu-setup-$(VERSION)$(EXESUF)
+
+nsisflags = -V2 -NOCD
+
+ifneq ($(wildcard $(SRC_PATH)/dll),)
+ifeq ($(ARCH),x86_64)
+# 64 bit executables
+DLL_PATH = $(SRC_PATH)/dll/w64
+nsisflags += -DW64
+else
+# 32 bit executables
+DLL_PATH = $(SRC_PATH)/dll/w32
+endif
+endif
+
+.PHONY: installer
+installer: $(INSTALLER)
+
+INSTDIR=/tmp/qemu-nsis
+
+$(INSTALLER): $(SRC_PATH)/qemu.nsi
+	make install prefix=${INSTDIR}
+ifdef SIGNCODE
+	(cd ${INSTDIR}; \
+         for i in *.exe; do \
+           $(SIGNCODE) $${i}; \
+         done \
+        )
+endif # SIGNCODE
+	(cd ${INSTDIR}; \
+         for i in qemu-system-*.exe; do \
+           arch=$${i%.exe}; \
+           arch=$${arch#qemu-system-}; \
+           echo Section \"$$arch\" Section_$$arch; \
+           echo SetOutPath \"\$$INSTDIR\"; \
+           echo File \"\$${BINDIR}\\$$i\"; \
+           echo SectionEnd; \
+         done \
+        ) >${INSTDIR}/system-emulations.nsh
+	makensis $(nsisflags) \
+                $(if $(BUILD_DOCS),-DCONFIG_DOCUMENTATION="y") \
+                $(if $(CONFIG_GTK),-DCONFIG_GTK="y") \
+                -DBINDIR="${INSTDIR}" \
+                $(if $(DLL_PATH),-DDLLDIR="$(DLL_PATH)") \
+                -DSRCDIR="$(SRC_PATH)" \
+                -DOUTFILE="$(INSTALLER)" \
+                $(SRC_PATH)/qemu.nsi
+	rm -r ${INSTDIR}
+ifdef SIGNCODE
+	$(SIGNCODE) $(INSTALLER)
+endif # SIGNCODE
+endif # CONFIG_WIN
 
 # Add a dependency on the generated files, so that they are always
 # rebuilt before other object files

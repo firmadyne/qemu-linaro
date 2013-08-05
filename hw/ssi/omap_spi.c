@@ -33,6 +33,9 @@
 #define TRACE(...)
 #endif
 
+#define TYPE_OMAP_MCSPI "omap_mcspi"
+#define OMAP_MCSPI(obj) OBJECT_CHECK(OMAPSPIState, (obj), TYPE_OMAP_MCSPI)
+
 #define SPI_FIFOSIZE 64
 #define SPI_REV_OMAP2420 0x14
 #define SPI_REV_OMAP3430 0x21
@@ -76,7 +79,7 @@ typedef struct omap_mcspi_bus_s {
 } OMAPSPIBusState;
 
 typedef struct omap_mcspi_s {
-    SysBusDevice busdev;
+    SysBusDevice parent_obj;
     int mpu_model;
     int buscount;
     OMAPSPIBusState *bus;
@@ -610,18 +613,18 @@ static const MemoryRegionOps omap_mcspi_ops = {
 static void omap_mcspi_reset(DeviceState *qdev)
 {
     int i;
-    OMAPSPIState *s = FROM_SYSBUS(OMAPSPIState, SYS_BUS_DEVICE(qdev));
+    OMAPSPIState *s = OMAP_MCSPI(qdev);
     for (i = 0; i < s->buscount; i++) {
         omap_mcspi_bus_reset(&s->bus[i]);
     }
 }
 
-static int omap_mcspi_init(SysBusDevice *busdev)
+static int omap_mcspi_init(SysBusDevice *sbd)
 {
     int i, j;
     OMAPSPIBusState *bs;
-    OMAPSPIState *s = FROM_SYSBUS(OMAPSPIState, busdev);
-    
+    OMAPSPIState *s = OMAP_MCSPI(sbd);
+
     s->buscount = (s->mpu_model < omap3430) ? 2 : 4;
     s->bus = g_new0(OMAPSPIBusState, s->buscount);
     for (i = 0; i < s->buscount; i++) {
@@ -633,23 +636,25 @@ static int omap_mcspi_init(SysBusDevice *busdev)
             bs->revision = SPI_REV_OMAP3430;
             bs->chnum = (i > 2) ? 1 : (i ? 2 : 4);
         }
-        sysbus_init_irq(busdev, &bs->irq);
-        bs->bus = spi_init_bus(&busdev->qdev, NULL, bs->chnum);
+        sysbus_init_irq(sbd, &bs->irq);
+        bs->bus = spi_init_bus(DEVICE(sbd), NULL, bs->chnum);
         bs->ch = g_new0(struct omap_mcspi_ch_s, bs->chnum);
         for (j = 0; j < bs->chnum; j++) {
-            sysbus_init_irq(busdev, &bs->ch[j].txdrq);
-            sysbus_init_irq(busdev, &bs->ch[j].rxdrq);
+            sysbus_init_irq(sbd, &bs->ch[j].txdrq);
+            sysbus_init_irq(sbd, &bs->ch[j].rxdrq);
         }
-        memory_region_init_io(&bs->iomem, &omap_mcspi_ops, bs, "omap.mcspi",
+        memory_region_init_io(&bs->iomem, NULL,
+                              &omap_mcspi_ops, bs, "omap.mcspi",
                               0x1000);
-        sysbus_init_mmio(busdev, &bs->iomem);
+        sysbus_init_mmio(sbd, &bs->iomem);
     }
     return 0;
 }
 
 SPIBus *omap_mcspi_bus(DeviceState *qdev, int bus_number)
 {
-    OMAPSPIState *s = FROM_SYSBUS(OMAPSPIState, SYS_BUS_DEVICE(qdev));
+    OMAPSPIState *s = OMAP_MCSPI(qdev);
+
     if (bus_number < s->buscount) {
         return s->bus[bus_number].bus;
     }
@@ -671,7 +676,7 @@ static void omap_mcspi_class_init(ObjectClass *klass, void *data)
 }
 
 static TypeInfo omap_mcspi_info = {
-    .name = "omap_mcspi",
+    .name = TYPE_OMAP_MCSPI,
     .parent = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(OMAPSPIState),
     .class_init = omap_mcspi_class_init,

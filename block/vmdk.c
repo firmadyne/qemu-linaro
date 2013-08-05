@@ -507,8 +507,11 @@ static int vmdk_open_vmdk4(BlockDriverState *bs,
     if (ret < 0) {
         return ret;
     }
-    if (header.capacity == 0 && header.desc_offset) {
-        return vmdk_open_desc_file(bs, flags, header.desc_offset << 9);
+    if (header.capacity == 0) {
+        int64_t desc_offset = le64_to_cpu(header.desc_offset);
+        if (desc_offset) {
+            return vmdk_open_desc_file(bs, flags, desc_offset << 9);
+        }
     }
 
     if (le64_to_cpu(header.gd_offset) == VMDK4_GD_AT_END) {
@@ -556,6 +559,15 @@ static int vmdk_open_vmdk4(BlockDriverState *bs,
         }
 
         header = footer.header;
+    }
+
+    if (le32_to_cpu(header.version) >= 3) {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "VMDK version %d",
+                 le32_to_cpu(header.version));
+        qerror_report(QERR_UNKNOWN_BLOCK_FORMAT_FEATURE,
+                bs->device_name, "vmdk", buf);
+        return -ENOTSUP;
     }
 
     l1_entry_sectors = le32_to_cpu(header.num_gtes_per_gte)
@@ -719,27 +731,40 @@ static int vmdk_open_desc_file(BlockDriverState *bs, int flags,
                                int64_t desc_offset)
 {
     int ret;
-    char buf[2048];
+    char *buf = NULL;
     char ct[128];
     BDRVVmdkState *s = bs->opaque;
+    int64_t size;
 
-    ret = bdrv_pread(bs->file, desc_offset, buf, sizeof(buf));
-    if (ret < 0) {
-        return ret;
+    size = bdrv_getlength(bs->file);
+    if (size < 0) {
+        return -EINVAL;
     }
-    buf[2047] = '\0';
+
+    size = MIN(size, 1 << 20);  /* avoid unbounded allocation */
+    buf = g_malloc0(size + 1);
+
+    ret = bdrv_pread(bs->file, desc_offset, buf, size);
+    if (ret < 0) {
+        goto exit;
+    }
     if (vmdk_parse_description(buf, "createType", ct, sizeof(ct))) {
-        return -EMEDIUMTYPE;
+        ret = -EMEDIUMTYPE;
+        goto exit;
     }
     if (strcmp(ct, "monolithicFlat") &&
         strcmp(ct, "twoGbMaxExtentSparse") &&
         strcmp(ct, "twoGbMaxExtentFlat")) {
         fprintf(stderr,
                 "VMDK: Not supported image type \"%s\""".\n", ct);
-        return -ENOTSUP;
+        ret = -ENOTSUP;
+        goto exit;
     }
     s->desc_offset = 0;
-    return vmdk_parse_extents(buf, bs, bs->file->filename);
+    ret = vmdk_parse_extents(buf, bs, bs->file->filename);
+exit:
+    g_free(buf);
+    return ret;
 }
 
 static int vmdk_open(BlockDriverState *bs, QDict *options, int flags)
@@ -1462,45 +1487,6 @@ static int filename_decompose(const char *filename, char *path, char *prefix,
     return VMDK_OK;
 }
 
-static int relative_path(char *dest, int dest_size,
-        const char *base, const char *target)
-{
-    int i = 0;
-    int n = 0;
-    const char *p, *q;
-#ifdef _WIN32
-    const char *sep = "\\";
-#else
-    const char *sep = "/";
-#endif
-
-    if (!(dest && base && target)) {
-        return VMDK_ERROR;
-    }
-    if (path_is_absolute(target)) {
-        pstrcpy(dest, dest_size, target);
-        return VMDK_OK;
-    }
-    while (base[i] == target[i]) {
-        i++;
-    }
-    p = &base[i];
-    q = &target[i];
-    while (*p) {
-        if (*p == *sep) {
-            n++;
-        }
-        p++;
-    }
-    dest[0] = '\0';
-    for (; n; n--) {
-        pstrcat(dest, dest_size, "..");
-        pstrcat(dest, dest_size, sep);
-    }
-    pstrcat(dest, dest_size, q);
-    return VMDK_OK;
-}
-
 static int vmdk_create(const char *filename, QEMUOptionParameter *options)
 {
     int fd, idx = 0;
@@ -1600,7 +1586,6 @@ static int vmdk_create(const char *filename, QEMUOptionParameter *options)
         return -ENOTSUP;
     }
     if (backing_file) {
-        char parent_filename[PATH_MAX];
         BlockDriverState *bs = bdrv_new("");
         ret = bdrv_open(bs, backing_file, NULL, 0, NULL);
         if (ret != 0) {
@@ -1613,10 +1598,8 @@ static int vmdk_create(const char *filename, QEMUOptionParameter *options)
         }
         parent_cid = vmdk_read_cid(bs, 0);
         bdrv_delete(bs);
-        relative_path(parent_filename, sizeof(parent_filename),
-                      filename, backing_file);
         snprintf(parent_desc_line, sizeof(parent_desc_line),
-                "parentFileNameHint=\"%s\"", parent_filename);
+                "parentFileNameHint=\"%s\"", backing_file);
     }
 
     /* Create extents */
@@ -1741,6 +1724,23 @@ static int64_t vmdk_get_allocated_file_size(BlockDriverState *bs)
     return ret;
 }
 
+static int vmdk_has_zero_init(BlockDriverState *bs)
+{
+    int i;
+    BDRVVmdkState *s = bs->opaque;
+
+    /* If has a flat extent and its underlying storage doesn't have zero init,
+     * return 0. */
+    for (i = 0; i < s->num_extents; i++) {
+        if (s->extents[i].flat) {
+            if (!bdrv_has_zero_init(s->extents[i].file)) {
+                return 0;
+            }
+        }
+    }
+    return 1;
+}
+
 static QEMUOptionParameter vmdk_create_options[] = {
     {
         .name = BLOCK_OPT_SIZE,
@@ -1779,21 +1779,22 @@ static QEMUOptionParameter vmdk_create_options[] = {
 };
 
 static BlockDriver bdrv_vmdk = {
-    .format_name    = "vmdk",
-    .instance_size  = sizeof(BDRVVmdkState),
-    .bdrv_probe     = vmdk_probe,
-    .bdrv_open      = vmdk_open,
-    .bdrv_reopen_prepare = vmdk_reopen_prepare,
-    .bdrv_read      = vmdk_co_read,
-    .bdrv_write     = vmdk_co_write,
-    .bdrv_co_write_zeroes = vmdk_co_write_zeroes,
-    .bdrv_close     = vmdk_close,
-    .bdrv_create    = vmdk_create,
-    .bdrv_co_flush_to_disk  = vmdk_co_flush,
-    .bdrv_co_is_allocated   = vmdk_co_is_allocated,
-    .bdrv_get_allocated_file_size  = vmdk_get_allocated_file_size,
+    .format_name                  = "vmdk",
+    .instance_size                = sizeof(BDRVVmdkState),
+    .bdrv_probe                   = vmdk_probe,
+    .bdrv_open                    = vmdk_open,
+    .bdrv_reopen_prepare          = vmdk_reopen_prepare,
+    .bdrv_read                    = vmdk_co_read,
+    .bdrv_write                   = vmdk_co_write,
+    .bdrv_co_write_zeroes         = vmdk_co_write_zeroes,
+    .bdrv_close                   = vmdk_close,
+    .bdrv_create                  = vmdk_create,
+    .bdrv_co_flush_to_disk        = vmdk_co_flush,
+    .bdrv_co_is_allocated         = vmdk_co_is_allocated,
+    .bdrv_get_allocated_file_size = vmdk_get_allocated_file_size,
+    .bdrv_has_zero_init           = vmdk_has_zero_init,
 
-    .create_options = vmdk_create_options,
+    .create_options               = vmdk_create_options,
 };
 
 static void bdrv_vmdk_init(void)
