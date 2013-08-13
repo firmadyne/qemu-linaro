@@ -1429,7 +1429,6 @@ static TRBCCode xhci_reset_ep(XHCIState *xhci, unsigned int slotid,
 {
     XHCISlot *slot;
     XHCIEPContext *epctx;
-    USBDevice *dev;
 
     trace_usb_xhci_ep_reset(slotid, epid);
     assert(slotid >= 1 && slotid <= xhci->numslots);
@@ -1465,8 +1464,8 @@ static TRBCCode xhci_reset_ep(XHCIState *xhci, unsigned int slotid,
         ep |= 0x80;
     }
 
-    dev = xhci->slots[slotid-1].uport->dev;
-    if (!dev) {
+    if (!xhci->slots[slotid-1].uport ||
+        !xhci->slots[slotid-1].uport->dev) {
         return CC_USB_TRANSACTION_ERROR;
     }
 
@@ -2673,7 +2672,7 @@ static void xhci_port_update(XHCIPort *port, int is_detach)
     xhci_port_notify(port, PORTSC_CSC);
 }
 
-static void xhci_port_reset(XHCIPort *port)
+static void xhci_port_reset(XHCIPort *port, bool warm_reset)
 {
     trace_usb_xhci_port_reset(port->portnr);
 
@@ -2684,6 +2683,11 @@ static void xhci_port_reset(XHCIPort *port)
     usb_device_reset(port->uport->dev);
 
     switch (port->uport->dev->speed) {
+    case USB_SPEED_SUPER:
+        if (warm_reset) {
+            port->portsc |= PORTSC_WRC;
+        }
+        /* fall through */
     case USB_SPEED_LOW:
     case USB_SPEED_FULL:
     case USB_SPEED_HIGH:
@@ -2846,8 +2850,12 @@ static void xhci_port_write(void *ptr, hwaddr reg,
     switch (reg) {
     case 0x00: /* PORTSC */
         /* write-1-to-start bits */
+        if (val & PORTSC_WPR) {
+            xhci_port_reset(port, true);
+            break;
+        }
         if (val & PORTSC_PR) {
-            xhci_port_reset(port);
+            xhci_port_reset(port, false);
             break;
         }
 

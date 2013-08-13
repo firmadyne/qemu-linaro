@@ -46,7 +46,7 @@
 /* ICH9 AHCI has 6 ports */
 #define MAX_SATA_PORTS     6
 
-static bool has_pvpanic = true;
+static bool has_pvpanic;
 static bool has_pci_info = true;
 
 /* PC hardware initialisation */
@@ -110,6 +110,7 @@ static void pc_q35_init(QEMUMachineInitArgs *args)
 
     guest_info = pc_guest_info_init(below_4g_mem_size, above_4g_mem_size);
     guest_info->has_pci_info = has_pci_info;
+    guest_info->isapc_ram_fw = false;
 
     /* allocate ram and load rom/bios */
     if (!xen_enabled()) {
@@ -217,24 +218,31 @@ static void pc_q35_init(QEMUMachineInitArgs *args)
     }
 }
 
-static void pc_q35_init_1_5(QEMUMachineInitArgs *args)
+static void pc_q35_init_1_6(QEMUMachineInitArgs *args)
 {
     has_pci_info = false;
+    has_pvpanic = true;
     pc_q35_init(args);
+}
+
+static void pc_q35_init_1_5(QEMUMachineInitArgs *args)
+{
+    pc_q35_init_1_6(args);
 }
 
 static void pc_q35_init_1_4(QEMUMachineInitArgs *args)
 {
-    has_pvpanic = false;
     x86_cpu_compat_set_features("n270", FEAT_1_ECX, 0, CPUID_EXT_MOVBE);
-    pc_q35_init_1_5(args);
+    x86_cpu_compat_set_features("Westmere", FEAT_1_ECX, 0, CPUID_EXT_PCLMULQDQ);
+    has_pci_info = false;
+    pc_q35_init(args);
 }
 
 static QEMUMachine pc_q35_machine_v1_6 = {
     .name = "pc-q35-1.6",
     .alias = "q35",
     .desc = "Standard PC (Q35 + ICH9, 2009)",
-    .init = pc_q35_init,
+    .init = pc_q35_init_1_6,
     .hot_add_cpu = pc_hot_add_cpu,
     .max_cpus = 255,
     DEFAULT_MACHINE_OPTIONS,
