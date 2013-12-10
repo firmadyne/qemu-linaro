@@ -311,13 +311,13 @@ static void omap_dss_framedone(void *opaque)
                 s->rfbi.busy = 0;
             }
             if (s->dispc.lcdframer) {
-                qemu_del_timer(s->dispc.lcdframer);
+                timer_del(s->dispc.lcdframer);
             }
         } else {
             if (s->dispc.lcdframer) {
-                qemu_mod_timer(s->dispc.lcdframer,
-                               qemu_get_clock_ns(vm_clock)
-                               + get_ticks_per_sec() / 10);
+                timer_mod(s->dispc.lcdframer,
+                          qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL)
+                          + get_ticks_per_sec() / 10);
             }
         }
         s->dispc.irqst |= 1 | 2;    /* FRAMEDONE | VSYNC */
@@ -408,7 +408,7 @@ static void omap_dsi_transfer_stop(void *opaque)
 {
     struct omap_dss_s *s = opaque;
     int i;
-    qemu_del_timer(s->dsi.xfer_timer);
+    timer_del(s->dsi.xfer_timer);
     for (i = 0; i < 4; i++) {
         if ((s->dsi.vc[i].ctrl & 1) &&       /* VC_EN */
             ((s->dsi.vc[i].te >> 30) & 3)) { /* TE_START | TE_EN */
@@ -458,9 +458,9 @@ static void omap_dsi_transfer_start(struct omap_dss_s *s, int ch)
              * setup a small delay and report transfer complete a bit
              * later. */
             s->dsi.vc[ch].ctrl &= ~(0x11 << 16); /* TX/RX fifo not full */
-            qemu_mod_timer(s->dsi.xfer_timer,
-                           qemu_get_clock_ns(vm_clock)
-                           + get_ticks_per_sec() / 1000);
+            timer_mod(s->dsi.xfer_timer,
+                      qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL)
+                      + get_ticks_per_sec() / 1000);
         }
     }
 }
@@ -1279,9 +1279,9 @@ static void omap_disc_write(void *opaque, hwaddr addr,
                     }
                 }
             } else if (s->dispc.lcdframer) {
-                qemu_mod_timer(s->dispc.lcdframer,
-                               qemu_get_clock_ns(vm_clock)
-                               + get_ticks_per_sec() / 10);
+                timer_mod(s->dispc.lcdframer,
+                          qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL)
+                          + get_ticks_per_sec() / 10);
             }
         } else if (n & 1) { /* enable -> disable, signal wip frame done */
             s->dispc.control |= 1;
@@ -2518,11 +2518,12 @@ static int omap_dss_init(SysBusDevice *dev)
         sysbus_init_mmio(dev, &s->iomem_im3);
     } else {
         s->dispc.rev = 0x30;
-        s->dispc.lcdframer = qemu_new_timer_ns(vm_clock, omap_dss_framedone, s);
+        s->dispc.lcdframer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
+                                          omap_dss_framedone, s);
         s->dsi.host = dsi_init_host(DEVICE(s), "omap3_dsi",
                                     omap_dsi_te_trigger,
                                     omap_dss_linefn);
-        s->dsi.xfer_timer = qemu_new_timer_ns(vm_clock, omap_dsi_transfer_stop,
+        s->dsi.xfer_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, omap_dsi_transfer_stop,
                                            s);
         memory_region_init_io(&s->iomem_dsi, obj, &omap_dsi_ops, s,
                               "omap.dsi", 0x400);

@@ -862,10 +862,10 @@ static int omap3_onenand_boot(struct omap_mpu_state_s *s)
     int result = 0;
 
     /* reset device type at cs0: 16bit NOR, no wait monitoring */
-    cpu_to_le32wu(&x, 0x79001000);
+    stl_le_p(&x, 0x79001000);
     cpu_physical_memory_write(0x6e000060, (void *)&x, 4); /* GPMC_CONFIG1_0 */
     /* map cs0 at 0x08000000 */
-    cpu_to_le32wu(&x, 0x00000848);
+    stl_le_p(&x, 0x00000848);
     cpu_physical_memory_write(0x6e000078, (void *)&x, 4); /* GPMC_CONFIG7_0 */
     /* try to read onenand registers */
     x = omap3_onenand_readreg(0xf000);                    /* manufacturer id */

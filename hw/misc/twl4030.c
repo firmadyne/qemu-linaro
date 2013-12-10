@@ -1031,13 +1031,13 @@ static void twl4030_setup_alarm(TWL4030NodeState *s)
                 TRACE_RTC("alarm is in the past");
             } else {
                 TRACE_RTC("new alarm interrupt in %" PRId64 " seconds", delta);
-                qemu_mod_timer(s->twl4030->alarm_timer,
-                               qemu_get_clock_ns(vm_clock)
-                               + get_ticks_per_sec() * delta);
+                timer_mod(s->twl4030->alarm_timer,
+                          qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL)
+                          + get_ticks_per_sec() * delta);
             }
         }
     } else {
-        qemu_del_timer(s->twl4030->alarm_timer);
+        timer_del(s->twl4030->alarm_timer);
     }
 }
 
@@ -1052,10 +1052,11 @@ static void twl4030_setup_periodic(TWL4030NodeState *s)
             case 3: t = 24 * 60 * 60; break;
         }
         TRACE_RTC("new periodic interrupt in %u seconds", t);
-        qemu_mod_timer(s->twl4030->periodic_timer,
-                       qemu_get_clock_ns(vm_clock) + get_ticks_per_sec() * t);
+        timer_mod(s->twl4030->periodic_timer,
+                  qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL)
+                  + get_ticks_per_sec() * t);
     } else {
-        qemu_del_timer(s->twl4030->periodic_timer);
+        timer_del(s->twl4030->periodic_timer);
     }
 }
 
@@ -1069,7 +1070,7 @@ static void twl4030_alarm(void *opaque)
         s->i2c[3]->reg_data[0x30] |= 0x08;  /* PWR_ISR2 |= RTC_IT */
         twl4030_interrupt_update(s);
     }
-    qemu_del_timer(s->alarm_timer);
+    timer_del(s->alarm_timer);
 }
 
 static void twl4030_periodic(void *opaque)
@@ -1649,8 +1650,8 @@ static void twl4030_reset(void *opaque)
 {
     TWL4030State *s = opaque;
     
-    qemu_del_timer(s->alarm_timer);
-    qemu_del_timer(s->periodic_timer);
+    timer_del(s->alarm_timer);
+    timer_del(s->periodic_timer);
 
     twl4030_node_reset(s->i2c[0], addr_48_reset_values);
     twl4030_node_reset(s->i2c[1], addr_49_reset_values);
@@ -1739,8 +1740,8 @@ void *twl4030_init(i2c_bus *bus, qemu_irq irq1, qemu_irq irq2,
     s->key_tst = 0;
     s->keymap = keymap;
 
-    s->alarm_timer = qemu_new_timer_ns(vm_clock, twl4030_alarm, s);
-    s->periodic_timer = qemu_new_timer_ns(vm_clock, twl4030_periodic, s);
+    s->alarm_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, twl4030_alarm, s);
+    s->periodic_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, twl4030_periodic, s);
 
     int i;
     for (i = 0; i < ARRAY_SIZE(twl4030_info); i++) {
