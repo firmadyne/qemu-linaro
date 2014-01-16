@@ -12,7 +12,7 @@ here. For full change detail consult the git history:
 Bug numbers refer to Launchpad qemu-linaro bugs, eg:
 https://bugs.launchpad.net/qemu-linaro/+bug/703094
 
-version 2013.12:
+version 2014.01:
  - Rebased onto upstream v1.7.0.
  - Interesting ARM related upstream changes include:
    - the addition of experimental virtio device support in the
