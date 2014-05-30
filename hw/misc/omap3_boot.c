@@ -462,7 +462,8 @@ static uint32_t omap3_boot_block(const uint8_t *data,
             if (!s->count || (s->count >> 24) || !s->addr || s->addr == 0xffffffff)
                 break;
             /* patch image start address in boot ROM */
-            cpu_physical_memory_write_rom(0x40014040, data + 4, 4);
+            cpu_physical_memory_write_rom(&address_space_memory,
+                                          0x40014040, data + 4, 4);
             /* start copying image */
             data += 8;
             data_len -= 8;
@@ -497,7 +498,7 @@ static int omap3_boot_finish(struct omap3_boot_s *s)
 
     if (result) {
         /* fill in the booting parameter structure */
-        cpu_physical_memory_write_rom(0x40014044, x, 12);
+        cpu_physical_memory_write_rom(&address_space_memory, 0x40014044, x, 12);
     }
     free(s);
     return result;
@@ -907,10 +908,12 @@ void omap3_boot_rom_init(struct omap_mpu_state_s *s)
         memory_region_add_subregion(get_system_memory(),
                                     OMAP3_Q1_BASE + 0x14000,
                                     &s->bootrom);
-        cpu_physical_memory_write_rom(OMAP3_Q1_BASE + 0x14000,
+        cpu_physical_memory_write_rom(&address_space_memory,
+                                      OMAP3_Q1_BASE + 0x14000,
                                       omap3_boot_rom,
                                       sizeof(omap3_boot_rom));
-        cpu_physical_memory_write_rom(OMAP3_Q1_BASE + 0x1bffc,
+        cpu_physical_memory_write_rom(&address_space_memory,
+                                      OMAP3_Q1_BASE + 0x1bffc,
                                       rom_version,
                                       sizeof(rom_version));
         cpu_physical_memory_write(OMAP3_SRAM_BASE + 0xffc8,

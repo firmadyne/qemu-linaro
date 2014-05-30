@@ -210,7 +210,7 @@ static void n8x0_i2c_setup(struct n800_s *s)
 {
     DeviceState *dev;
     qemu_irq tmp_irq = qdev_get_gpio_in(s->mpu->gpio, N8X0_TMP105_GPIO);
-    i2c_bus *i2c = omap_i2c_bus(s->mpu->i2c[0]);
+    I2CBus *i2c = omap_i2c_bus(s->mpu->i2c[0]);
 
     /* Attach a menelaus PM chip */
     dev = i2c_create_slave(i2c, "twl92230", N8X0_MENELAUS_ADDR);
@@ -1625,8 +1625,11 @@ static const MemoryRegionOps ssi_ops = {
     .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
-typedef struct LIS302DLState_s {
-    I2CSlave i2c;
+#define TYPE_LIS302DL "lis302dl"
+#define LIS302DL(obj) OBJECT_CHECK(LIS302DLState, (obj), TYPE_LIS302DL)
+
+typedef struct LIS302DLState {
+    I2CSlave parent_obj;
     int firstbyte;
     uint8_t reg;
 
@@ -1768,8 +1771,8 @@ static void lis302dl_step(void *opaque, int axis, int high, int activate)
 
 static void lis302dl_reset(DeviceState *ds)
 {
-    LIS302DLState *s = FROM_I2C_SLAVE(LIS302DLState, I2C_SLAVE(ds));
-    
+    LIS302DLState *s = LIS302DL(ds);
+
     s->firstbyte = 0;
     s->reg = 0;
 
@@ -1783,7 +1786,7 @@ static void lis302dl_reset(DeviceState *ds)
 
     memset(s->ff_wu, 0x00, sizeof(s->ff_wu));
     memset(&s->click, 0x00, sizeof(s->click));
-    
+
     s->x = 0;
     s->y = -s->axis_max;
     s->z = 0;
@@ -1793,7 +1796,7 @@ static void lis302dl_reset(DeviceState *ds)
 
 static void lis302dl_event(I2CSlave *i2c, enum i2c_event event)
 {
-    LIS302DLState *s = FROM_I2C_SLAVE(LIS302DLState, i2c);
+    LIS302DLState *s = LIS302DL(i2c);
     if (event == I2C_START_SEND)
         s->firstbyte = 1;
 }
@@ -1850,7 +1853,7 @@ static uint8_t lis302dl_readcoord(LIS302DLState *s, int coord)
 
 static int lis302dl_rx(I2CSlave *i2c)
 {
-    LIS302DLState *s = FROM_I2C_SLAVE(LIS302DLState, i2c);
+    LIS302DLState *s = LIS302DL(i2c);
     int value = -1;
     int n = 0;
     switch (s->reg & 0x7f) {
@@ -1964,7 +1967,7 @@ static int lis302dl_rx(I2CSlave *i2c)
 
 static int lis302dl_tx(I2CSlave *i2c, uint8_t data)
 {
-    LIS302DLState *s = FROM_I2C_SLAVE(LIS302DLState, i2c);
+    LIS302DLState *s = LIS302DL(i2c);
     if (s->firstbyte) {
         s->reg = data;
         s->firstbyte = 0;
@@ -2041,7 +2044,7 @@ static int lis302dl_tx(I2CSlave *i2c, uint8_t data)
 
 static int lis302dl_init(I2CSlave *i2c)
 {
-    LIS302DLState *s = FROM_I2C_SLAVE(LIS302DLState, i2c);
+    LIS302DLState *s = LIS302DL(i2c);
     s->axis_max = 58;
     s->axis_step = s->axis_max;// / 2;
     qdev_init_gpio_out(&i2c->qdev, s->irq, 2);
@@ -2079,11 +2082,13 @@ static TypeInfo lis302dl_info = {
     .class_init = lis302dl_class_init,
 };
 
-typedef struct BQ2415XState_s {
-    I2CSlave i2c;
+#define TYPE_BQ2415X "bq2415x"
+#define BQ2415X(obj) OBJECT_CHECK(BQ2415XState, (obj), TYPE_BQ2415X)
+
+typedef struct BQ2415XState {
+    I2CSlave parent_obj;
     int firstbyte;
     uint8 reg;
-    
     uint8_t id;
     uint8_t st_ctrl;
     uint8_t ctrl;
@@ -2093,7 +2098,7 @@ typedef struct BQ2415XState_s {
 
 static void bq2415x_reset(DeviceState *ds)
 {
-    BQ2415XState *s = FROM_I2C_SLAVE(BQ2415XState, I2C_SLAVE(ds));
+    BQ2415XState *s = BQ2415X(ds);
     
     s->firstbyte = 0;
     s->reg = 0;
@@ -2106,14 +2111,14 @@ static void bq2415x_reset(DeviceState *ds)
 
 static void bq2415x_event(I2CSlave *i2c, enum i2c_event event)
 {
-    BQ2415XState *s = FROM_I2C_SLAVE(BQ2415XState, i2c);
+    BQ2415XState *s = BQ2415X(i2c);
     if (event == I2C_START_SEND)
         s->firstbyte = 1;
 }
 
 static int bq2415x_rx(I2CSlave *i2c)
 {
-    BQ2415XState *s = FROM_I2C_SLAVE(BQ2415XState, i2c);
+    BQ2415XState *s = BQ2415X(i2c);
     int value = -1;
     switch (s->reg) {
         case 0x00:
@@ -2148,7 +2153,7 @@ static int bq2415x_rx(I2CSlave *i2c)
 
 static int bq2415x_tx(I2CSlave *i2c, uint8_t data)
 {
-    BQ2415XState *s = FROM_I2C_SLAVE(BQ2415XState, i2c);
+    BQ2415XState *s = BQ2415X(i2c);
     if (s->firstbyte) {
         s->reg = data;
         s->firstbyte = 0;
@@ -2209,8 +2214,11 @@ static TypeInfo bq2415x_info = {
     .class_init = bq2415x_class_init,
 };
 
-typedef struct tpa6130_s {
-    I2CSlave i2c;
+#define TYPE_TPA6130 "tpa6130"
+#define TPA6130(obj) OBJECT_CHECK(TPA6130State, (obj), TYPE_TPA6130)
+
+typedef struct TPA6130State {
+    I2CSlave parent_obj;
     int firstbyte;
     int reg;
     uint8_t data[3];
@@ -2218,7 +2226,7 @@ typedef struct tpa6130_s {
 
 static void tpa6130_reset(DeviceState *ds)
 {
-    TPA6130State *s = FROM_I2C_SLAVE(TPA6130State, I2C_SLAVE(ds));
+    TPA6130State *s = TPA6130(ds);
     s->firstbyte = 0;
     s->reg = 0;
     memset(s->data, 0, sizeof(s->data));
@@ -2226,14 +2234,14 @@ static void tpa6130_reset(DeviceState *ds)
 
 static void tpa6130_event(I2CSlave *i2c, enum i2c_event event)
 {
-    TPA6130State *s = FROM_I2C_SLAVE(TPA6130State, i2c);
+    TPA6130State *s = TPA6130(i2c);
     if (event == I2C_START_SEND)
         s->firstbyte = 1;
 }
 
 static int tpa6130_rx(I2CSlave *i2c)
 {
-    TPA6130State *s = FROM_I2C_SLAVE(TPA6130State, i2c);
+    TPA6130State *s = TPA6130(i2c);
     int value = 0;
     switch (s->reg) {
         case 1 ... 3:
@@ -2254,7 +2262,7 @@ static int tpa6130_rx(I2CSlave *i2c)
 
 static int tpa6130_tx(I2CSlave *i2c, uint8_t data)
 {
-    TPA6130State *s = FROM_I2C_SLAVE(TPA6130State, i2c);
+    TPA6130State *s = TPA6130(i2c);
     if (s->firstbyte) {
         s->reg = data;
         s->firstbyte = 0;
@@ -2557,12 +2565,12 @@ static void n900_init(QEMUMachineInitArgs *args)
                                                OMAP_INT_3XXX_SYS_NIRQ),
                               NULL, n900_twl4030_keymap);
     twl4030_madc_attach(s->twl4030, n900_twl4030_madc_callback);
-    i2c_bus *i2c2 = omap_i2c_bus(s->cpu->i2c[1]);
+    I2CBus *i2c2 = omap_i2c_bus(s->cpu->i2c[1]);
     s->bq2415x = i2c_create_slave(i2c2, "bq2415x", 0x6b);
     s->tpa6130 = i2c_create_slave(i2c2, "tpa6130", 0x60);
     qdev_connect_gpio_out(s->cpu->gpio, N900_HEADPHONE_EN_GPIO,
                           qdev_get_gpio_in(s->tpa6130, 0));
-    i2c_bus *i2c3 = omap_i2c_bus(s->cpu->i2c[2]);
+    I2CBus *i2c3 = omap_i2c_bus(s->cpu->i2c[2]);
     s->lis302dl = i2c_create_slave(i2c3, "lis302dl", 0x1d);
     qdev_connect_gpio_out(s->lis302dl, 0,
                           qdev_get_gpio_in(s->cpu->gpio,

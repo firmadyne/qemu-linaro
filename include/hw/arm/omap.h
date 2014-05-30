@@ -963,7 +963,7 @@ void omap3_mmc_attach(DeviceState *dev, BlockDriverState *bs,
                       int is_spi, int is_mmc);
 
 /* omap_i2c.c */
-i2c_bus *omap_i2c_bus(DeviceState *omap_i2c);
+I2CBus *omap_i2c_bus(DeviceState *omap_i2c);
 
 # define cpu_is_omap310(cpu)		(cpu->mpu_model == omap310)
 # define cpu_is_omap1510(cpu)		(cpu->mpu_model == omap1510)

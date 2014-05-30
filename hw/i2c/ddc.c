@@ -217,8 +217,11 @@ static void build_edid_blob(const edid_data *edid, uint8_t *blob)
 
 /* A simple I2C slave which just returns the contents of its EDID blob. */
 
-typedef struct I2CDDCState_s {
-    I2CSlave i2c;
+#define TYPE_I2CDDC "i2c-ddc"
+#define I2CDDC(obj) OBJECT_CHECK(I2CDDCState, (obj), TYPE_I2CDDC)
+
+typedef struct I2CDDCState {
+    I2CSlave parent_obj;
     int firstbyte;
     uint8_t reg;
     uint8_t edid_blob[128];
@@ -226,14 +229,14 @@ typedef struct I2CDDCState_s {
 
 static void i2c_ddc_reset(DeviceState *ds)
 {
-    I2CDDCState *s = FROM_I2C_SLAVE(I2CDDCState, I2C_SLAVE(ds));
+    I2CDDCState *s = I2CDDC(ds);
     s->firstbyte = 0;
     s->reg = 0;
 }
 
 static void i2c_ddc_event(I2CSlave *i2c, enum i2c_event event)
 {
-    I2CDDCState *s = FROM_I2C_SLAVE(I2CDDCState, i2c);
+    I2CDDCState *s = I2CDDC(i2c);
     if (event == I2C_START_SEND) {
         s->firstbyte = 1;
     }
@@ -241,7 +244,7 @@ static void i2c_ddc_event(I2CSlave *i2c, enum i2c_event event)
 
 static int i2c_ddc_rx(I2CSlave *i2c)
 {
-    I2CDDCState *s = FROM_I2C_SLAVE(I2CDDCState, i2c);
+    I2CDDCState *s = I2CDDC(i2c);
     int value;
     if (s->reg < sizeof(s->edid_blob)) {
         value = s->edid_blob[s->reg];
@@ -254,7 +257,7 @@ static int i2c_ddc_rx(I2CSlave *i2c)
 
 static int i2c_ddc_tx(I2CSlave *i2c, uint8_t data)
 {
-    I2CDDCState *s = FROM_I2C_SLAVE(I2CDDCState, i2c);
+    I2CDDCState *s = I2CDDC(i2c);
     if (s->firstbyte) {
         s->reg = data;
         s->firstbyte = 0;
@@ -268,7 +271,7 @@ static int i2c_ddc_tx(I2CSlave *i2c, uint8_t data)
 
 static int i2c_ddc_init(I2CSlave *i2c)
 {
-    I2CDDCState *s = FROM_I2C_SLAVE(I2CDDCState, i2c);
+    I2CDDCState *s = I2CDDC(i2c);
     build_edid_blob(&lcd_edid, s->edid_blob);
     return 0;
 }

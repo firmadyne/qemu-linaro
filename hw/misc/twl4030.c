@@ -55,8 +55,11 @@ typedef uint8_t (*twl4030_read_func)(TWL4030NodeState *s,
 typedef void (*twl4030_write_func)(TWL4030NodeState *s,
                                    uint8_t addr, uint8_t value);
 
-struct TWL4030NodeState {
-    I2CSlave i2c;
+#define TYPE_TWL4030NODE "twl4030-node"
+#define TWL4030NODE(obj) OBJECT_CHECK(TWL4030NodeState, (obj), TYPE_TWL4030NODE)
+
+typedef struct TWL4030NodeState {
+    I2CSlave parent_obj;
     int firstbyte;
     uint8_t reg;
 
@@ -65,7 +68,7 @@ struct TWL4030NodeState {
     TWL4030State *twl4030;
 
     uint8 reg_data[256];
-};
+} TWL4030NodeState;
 
 struct TWL4030State {
     qemu_irq irq1;
@@ -1588,7 +1591,7 @@ static void twl4030_node_init(TWL4030NodeState *s,
 
 static int twl4030_48_init(I2CSlave *i2c)
 {
-    twl4030_node_init(FROM_I2C_SLAVE(TWL4030NodeState, i2c),
+    twl4030_node_init(TWL4030NODE(i2c),
                       twl4030_48_read, twl4030_48_write,
                       addr_48_reset_values);
     return 0;
@@ -1596,7 +1599,7 @@ static int twl4030_48_init(I2CSlave *i2c)
 
 static int twl4030_49_init(I2CSlave *i2c)
 {
-    twl4030_node_init(FROM_I2C_SLAVE(TWL4030NodeState, i2c),
+    twl4030_node_init(TWL4030NODE(i2c),
                       twl4030_49_read, twl4030_49_write,
                       addr_49_reset_values);
     return 0;
@@ -1604,7 +1607,7 @@ static int twl4030_49_init(I2CSlave *i2c)
 
 static int twl4030_4a_init(I2CSlave *i2c)
 {
-    TWL4030NodeState *s = FROM_I2C_SLAVE(TWL4030NodeState, i2c);
+    TWL4030NodeState *s = TWL4030NODE(i2c);
     twl4030_node_init(s,
                       twl4030_4a_read, twl4030_4a_write,
                       addr_4a_reset_values);
@@ -1614,7 +1617,7 @@ static int twl4030_4a_init(I2CSlave *i2c)
 
 static int twl4030_4b_init(I2CSlave *i2c)
 {
-    twl4030_node_init(FROM_I2C_SLAVE(TWL4030NodeState, i2c),
+    twl4030_node_init(TWL4030NODE(i2c),
                       twl4030_4b_read, twl4030_4b_write,
                       addr_4b_reset_values);
     return 0;
@@ -1623,20 +1626,20 @@ static int twl4030_4b_init(I2CSlave *i2c)
 static void twl4030_event(I2CSlave *i2c, enum i2c_event event)
 {
     if (event == I2C_START_SEND) {
-        TWL4030NodeState *s = FROM_I2C_SLAVE(TWL4030NodeState, i2c);
+        TWL4030NodeState *s = TWL4030NODE(i2c);
         s->firstbyte = 1;
     }
 }
 
 static int twl4030_rx(I2CSlave *i2c)
 {
-    TWL4030NodeState *s = FROM_I2C_SLAVE(TWL4030NodeState, i2c);
+    TWL4030NodeState *s = TWL4030NODE(i2c);
     return s->read_func(s, s->reg++);
 }
 
 static int twl4030_tx(I2CSlave *i2c, uint8_t data)
 {
-    TWL4030NodeState *s = FROM_I2C_SLAVE(TWL4030NodeState, i2c);
+    TWL4030NodeState *s = TWL4030NODE(i2c);
     if (s->firstbyte) {
         s->reg = data;
         s->firstbyte = 0;
@@ -1671,65 +1674,70 @@ static void twl4030_48_class_init(ObjectClass *klass, void *data)
 {
     I2CSlaveClass *k = I2C_SLAVE_CLASS(klass);
     k->init = twl4030_48_init;
-    k->event = twl4030_event;
-    k->recv = twl4030_rx;
-    k->send = twl4030_tx;
 }
 
 static void twl4030_49_class_init(ObjectClass *klass, void *data)
 {
     I2CSlaveClass *k = I2C_SLAVE_CLASS(klass);
     k->init = twl4030_49_init;
-    k->event = twl4030_event;
-    k->recv = twl4030_rx;
-    k->send = twl4030_tx;
 }
 
 static void twl4030_4a_class_init(ObjectClass *klass, void *data)
 {
     I2CSlaveClass *k = I2C_SLAVE_CLASS(klass);
     k->init = twl4030_4a_init;
-    k->event = twl4030_event;
-    k->recv = twl4030_rx;
-    k->send = twl4030_tx;
 }
+
 static void twl4030_4b_class_init(ObjectClass *klass, void *data)
 {
     I2CSlaveClass *k = I2C_SLAVE_CLASS(klass);
     k->init = twl4030_4b_init;
+}
+
+static void twl4030_class_init(ObjectClass *klass, void *data)
+{
+    I2CSlaveClass *k = I2C_SLAVE_CLASS(klass);
     k->event = twl4030_event;
     k->recv = twl4030_rx;
     k->send = twl4030_tx;
+    /* The subclass must fill in k->init */
 }
+
+static const TypeInfo twl4030node_info = {
+    .name = TYPE_TWL4030NODE,
+    .parent = TYPE_I2C_SLAVE,
+    .instance_size = sizeof(TWL4030NodeState),
+    .class_init = twl4030_class_init,
+};
 
 static TypeInfo twl4030_info[] = {
     {
         .name = "twl4030_48",
-        .parent = TYPE_I2C_SLAVE,
+        .parent = TYPE_TWL4030NODE,
         .instance_size = sizeof(TWL4030NodeState),
         .class_init = twl4030_48_class_init,
     },
     {
         .name = "twl4030_49",
-        .parent = TYPE_I2C_SLAVE,
+        .parent = TYPE_TWL4030NODE,
         .instance_size = sizeof(TWL4030NodeState),
         .class_init = twl4030_49_class_init,
     },
     {
         .name = "twl4030_4a",
-        .parent = TYPE_I2C_SLAVE,
+        .parent = TYPE_TWL4030NODE,
         .instance_size = sizeof(TWL4030NodeState),
         .class_init = twl4030_4a_class_init,
     },
     {
         .name = "twl4030_4b",
-        .parent = TYPE_I2C_SLAVE,
+        .parent = TYPE_TWL4030NODE,
         .instance_size = sizeof(TWL4030NodeState),
         .class_init = twl4030_4b_class_init,
     },
 };
 
-void *twl4030_init(i2c_bus *bus, qemu_irq irq1, qemu_irq irq2,
+void *twl4030_init(I2CBus *bus, qemu_irq irq1, qemu_irq irq2,
                    const TWL4030KeyMap *keymap)
 {
     TWL4030State *s = (TWL4030State *)g_malloc0(sizeof(*s));
@@ -1747,7 +1755,7 @@ void *twl4030_init(i2c_bus *bus, qemu_irq irq1, qemu_irq irq2,
     for (i = 0; i < ARRAY_SIZE(twl4030_info); i++) {
         DeviceState *ds = i2c_create_slave(bus, twl4030_info[i].name,
                                            0x48 + i);
-        s->i2c[i] = FROM_I2C_SLAVE(TWL4030NodeState, I2C_SLAVE(ds));
+        s->i2c[i] = TWL4030NODE(ds);
         s->i2c[i]->twl4030 = s;
     }
 
@@ -1755,7 +1763,7 @@ void *twl4030_init(i2c_bus *bus, qemu_irq irq1, qemu_irq irq2,
     return s;
 }
 
-void *twl5031_init(i2c_bus *bus, qemu_irq irq1, qemu_irq irq2,
+void *twl5031_init(I2CBus *bus, qemu_irq irq1, qemu_irq irq2,
                    const TWL4030KeyMap *keymap)
 {
     TWL4030State *s = twl4030_init(bus, irq1, irq2, keymap);
@@ -1800,6 +1808,7 @@ static void twl4030_register_types(void)
 {
     TypeInfo *p = twl4030_info;
     int i;
+    type_register_static(&twl4030node_info);
     for (i = 0; i < ARRAY_SIZE(twl4030_info); p++, i++) {
         type_register_static(p);
     }

@@ -225,8 +225,10 @@ static gboolean serial_xmit(GIOChannel *chan, GIOCondition cond, void *opaque)
 
     if (s->tsr_retry <= 0) {
         if (s->fcr & UART_FCR_FE) {
-            s->tsr = fifo8_is_full(&s->xmit_fifo) ?
-                        0 : fifo8_pop(&s->xmit_fifo);
+            if (fifo8_is_empty(&s->xmit_fifo)) {
+                return FALSE;
+            }
+            s->tsr = fifo8_pop(&s->xmit_fifo);
             if (!s->xmit_fifo.num) {
                 s->lsr |= UART_LSR_THRE;
             }
@@ -677,13 +679,13 @@ void serial_exit_core(SerialState *s)
 /* Get number of stored bytes in receive fifo. */
 unsigned serial_rx_fifo_count(SerialState *s)
 {
-    return fifo8_num(&s->recv_fifo);
+    return fifo8_num_used(&s->recv_fifo);
 }
 
 /* Get number of stored bytes in transmit fifo. */
 unsigned serial_tx_fifo_count(SerialState *s)
 {
-    return fifo8_num(&s->xmit_fifo);
+    return fifo8_num_used(&s->xmit_fifo);
 }
 
 /* Change the main reference oscillator frequency. */

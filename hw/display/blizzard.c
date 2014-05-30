@@ -997,7 +997,7 @@ void *s1d13745_init(qemu_irq gpio_int)
      * This is supposedly ok since nseries.c is the only user of blizzard.c */
     memset(s->fb, 0xff, 0x180000);
 
-    s->con = graphic_console_init(NULL, &blizzard_ops, s);
+    s->con = graphic_console_init(NULL, 0, &blizzard_ops, s);
 
     blizzard_reset(s);
     return s;
