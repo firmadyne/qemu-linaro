@@ -37,15 +37,6 @@
 #include "hw/sysbus.h"
 #include "exec/address-spaces.h"
 
-//#define MIPID_DEBUG
-
-#ifdef MIPID_DEBUG
-#define TRACE_MIPID(fmt, ...) \
-    fprintf(stderr, "%s@%d: " fmt "\n", __FUNCTION__, __LINE__, ##__VA_ARGS__)
-#else
-#define TRACE_MIPID(...)
-#endif
-
 /* Nokia N8x0 support */
 struct n800_s {
     struct omap_mpu_state_s *mpu;
@@ -482,20 +473,16 @@ static uint32_t mipid_txrx(SPIDevice *spidev, uint32_t cmd, int len)
 
     switch (s->cmd) {
     case 0x00:	/* NOP */
-        TRACE_MIPID("NOP");
         break;
 
     case 0x01:	/* SWRESET */
-        TRACE_MIPID("SWRESET");
         mipid_reset(&s->spi.qdev);
         break;
 
     case 0x02:	/* BSTROFF */
-        TRACE_MIPID("BSTROFF");
         s->booster = 0;
         break;
     case 0x03:	/* BSTRON */
-        TRACE_MIPID("BSTRON");
         s->booster = 1;
         break;
 
@@ -504,8 +491,6 @@ static uint32_t mipid_txrx(SPIDevice *spidev, uint32_t cmd, int len)
         s->resp[0] = (s->id >> 16) & 0xff;
         s->resp[1] = (s->id >>  8) & 0xff;
         s->resp[2] = (s->id >>  0) & 0xff;
-        TRACE_MIPID("RDDID 0x%02x 0x%02x 0x%02x",
-                    s->resp[0], s->resp[1], s->resp[2]);
         break;
 
     case 0x06:	/* RD_RED */
@@ -513,7 +498,6 @@ static uint32_t mipid_txrx(SPIDevice *spidev, uint32_t cmd, int len)
         /* XXX the bootloader sometimes issues RD_BLUE meaning RDDID so
          * for the bootloader one needs to change this.  */
     case 0x08:	/* RD_BLUE */
-        TRACE_MIPID("RD_RED/GREEN_BLUE 0x01");
         s->p = 0;
         /* TODO: return first pixel components */
         s->resp[0] = 0x01;
@@ -527,100 +511,80 @@ static uint32_t mipid_txrx(SPIDevice *spidev, uint32_t cmd, int len)
         s->resp[2] = (s->vscr << 7) | (s->invert << 5) |
                 (s->onoff << 2) | (s->te << 1) | (s->gamma >> 2);
         s->resp[3] = s->gamma << 6;
-        TRACE_MIPID("RDDST 0x%02x 0x%02x 0x%02x 0x%02x",
-                    s->resp[0], s->resp[1], s->resp[2], s->resp[3]);
         break;
 
     case 0x0a:	/* RDDPM */
         s->p = 0;
         s->resp[0] = (s->onoff << 2) | (s->normal << 3) | (s->sleep << 4) |
                 (s->partial << 5) | (s->sleep << 6) | (s->booster << 7);
-        TRACE_MIPID("RDDPM 0x%02x", s->resp[0]);
         break;
     case 0x0b:	/* RDDMADCTR */
         s->p = 0;
         s->resp[0] = 0;
-        TRACE_MIPID("RDDMACTR 0x%02x", s->resp[0]);
         break;
     case 0x0c:	/* RDDCOLMOD */
         s->p = 0;
         s->resp[0] = 5;	/* 65K colours */
-        TRACE_MIPID("RDDCOLMOD 0x%02x", s->resp[0]);
         break;
     case 0x0d:	/* RDDIM */
         s->p = 0;
         s->resp[0] = (s->invert << 5) | (s->vscr << 7) | s->gamma;
-        TRACE_MIPID("RDDIM 0x%02x", s->resp[0]);
         break;
     case 0x0e:	/* RDDSM */
         s->p = 0;
         s->resp[0] = s->te << 7;
-        TRACE_MIPID("RDDSM 0x%02x", s->resp[0]);
         break;
     case 0x0f:	/* RDDSDR */
         s->p = 0;
         s->resp[0] = s->selfcheck;
-        TRACE_MIPID("RDDSDR 0x%02x", s->resp[0]);
         break;
 
     case 0x10:	/* SLPIN */
-        TRACE_MIPID("SLPIN");
         s->sleep = 1;
         break;
     case 0x11:	/* SLPOUT */
-        TRACE_MIPID("SLPOUT");
         s->sleep = 0;
         s->selfcheck ^= 1 << 6;	/* POFF self-diagnosis Ok */
         break;
 
     case 0x12:	/* PTLON */
-        TRACE_MIPID("PTLON");
         s->partial = 1;
         s->normal = 0;
         s->vscr = 0;
         break;
     case 0x13:	/* NORON */
-        TRACE_MIPID("NORON");
         s->partial = 0;
         s->normal = 1;
         s->vscr = 0;
         break;
 
     case 0x20:	/* INVOFF */
-        TRACE_MIPID("INVOFF");
         s->invert = 0;
         break;
     case 0x21:	/* INVON */
-        TRACE_MIPID("INVON");
         s->invert = 1;
         break;
 
     case 0x22:	/* APOFF */
     case 0x23:	/* APON */
-        TRACE_MIPID("APON/OFF");
         goto bad_cmd;
 
     case 0x25:	/* WRCNTR */
-        TRACE_MIPID("WRCNTR");
         if (s->pm < 0)
             s->pm = 1;
         goto bad_cmd;
 
     case 0x26:	/* GAMSET */
-        if (!s->pm) {
+        if (!s->pm)
             s->gamma = ffs(s->param[0] & 0xf) - 1;
-            TRACE_MIPID("GAMSET 0x%02x", s->gamma);
-        } else if (s->pm < 0) {
+        else if (s->pm < 0)
             s->pm = 1;
-        }
         break;
 
     case 0x28:	/* DISPOFF */
-        TRACE_MIPID("DISPOFF");
         s->onoff = 0;
         break;
     case 0x29:	/* DISPON */
-        TRACE_MIPID("DISPON");
         s->onoff = 1;
         break;
 
@@ -634,24 +598,19 @@ static uint32_t mipid_txrx(SPIDevice *spidev, uint32_t cmd, int len)
         goto bad_cmd;
 
     case 0x34:	/* TEOFF */
-        TRACE_MIPID("TEOFF");
         s->te = 0;
         break;
     case 0x35:	/* TEON */
-        if (!s->pm) {
+        if (!s->pm)
             s->te = 1;
-            TRACE_MIPID("TEON 0x%02x", s->param[0] & 0xff);
-        } else if (s->pm < 0) {
+        else if (s->pm < 0)
             s->pm = 1;
-        }
         break;
 
     case 0x36:	/* MADCTR */
-        TRACE_MIPID("MADCTR");
         goto bad_cmd;
 
     case 0x37:	/* VSCSAD */
-        TRACE_MIPID("VSCSAD");
         s->partial = 0;
         s->normal = 0;
         s->vscr = 1;
@@ -659,11 +618,10 @@ static uint32_t mipid_txrx(SPIDevice *spidev, uint32_t cmd, int len)
 
     case 0x38:	/* IDMOFF */
     case 0x39:	/* IDMON */
-        TRACE_MIPID("IDMON/OFF");
         goto bad_cmd;
     case 0x3a:	/* COLMOD */
         if (!s->pm) {
-            TRACE_MIPID("COLMOD 0x%02x", s->param[0] & 0xff);
+            /* ??? COLMOD not implemented? */
         } else if (s->pm < 0) {
             s->pm = 1;
         }
@@ -673,7 +631,6 @@ static uint32_t mipid_txrx(SPIDevice *spidev, uint32_t cmd, int len)
         if (s->n900) {
             if (!s->pm) {
                 s->brightness = s->param[0] & 0xff;
-                TRACE_MIPID("WRITE_BRIGHTNESS 0x%02x", s->brightness);
             } else if (s->pm < 0) {
                 s->pm = 1;
             }
@@ -685,7 +642,6 @@ static uint32_t mipid_txrx(SPIDevice *spidev, uint32_t cmd, int len)
         if (s->n900) {
             s->p = 0;
             s->resp[0] = s->brightness;
-            TRACE_MIPID("READ_BRIGHTNESS 0x%02x", s->resp[0]);
         } else {
             goto bad_cmd;
         }
@@ -694,7 +650,6 @@ static uint32_t mipid_txrx(SPIDevice *spidev, uint32_t cmd, int len)
         if (s->n900) {
             if (!s->pm) {
                 s->ctrl = s->param[0] & 0xff;
-                TRACE_MIPID("WRITE_CTRL 0x%02x", s->ctrl);
             } else if (s->pm < 0) {
                 s->pm = 1;
             }
@@ -706,7 +661,6 @@ static uint32_t mipid_txrx(SPIDevice *spidev, uint32_t cmd, int len)
         if (s->n900) {
             s->p = 0;
             s->resp[0] = s->ctrl;
-            TRACE_MIPID("READ_CTRL 0x%02x", s->resp[0]);
         } else {
             goto bad_cmd;
         }
@@ -715,7 +669,6 @@ static uint32_t mipid_txrx(SPIDevice *spidev, uint32_t cmd, int len)
         if (s->n900) {
             if (!s->pm) {
                 s->cabc = s->param[0] & 0xff;
-                TRACE_MIPID("WRITE_CABC 0x%02x", s->cabc);
             } else if (s->pm < 0) {
                 s->pm = 1;
             }
@@ -727,7 +680,6 @@ static uint32_t mipid_txrx(SPIDevice *spidev, uint32_t cmd, int len)
         if (s->n900) {
             s->p = 0;
             s->resp[0] = s->cabc;
-            TRACE_MIPID("READ_CABC 0x%02x", s->resp[0]);
         } else {
             goto bad_cmd;
         }
@@ -736,14 +688,13 @@ static uint32_t mipid_txrx(SPIDevice *spidev, uint32_t cmd, int len)
     case 0xb0:	/* CLKINT / DISCTL */
     case 0xb1:	/* CLKEXT */
         if (!s->pm) {
-            TRACE_MIPID("CLKINT/EXT");
+            /* ??? CLKINT/EXT not implemented ? */
         } else if (s->pm < 0) {
             s->pm = 2;
         }
         break;
 
     case 0xb4:	/* FRMSEL */
-        TRACE_MIPID("FRMSEL");
         break;
 
     case 0xb5:	/* FRM8SEL */
@@ -758,12 +709,11 @@ static uint32_t mipid_txrx(SPIDevice *spidev, uint32_t cmd, int len)
         s->p = 0;
         s->resp[0] = 0;
         s->resp[1] = 1;
-        TRACE_MIPID("??? 0x%02x 0x%02x", s->resp[0], s->resp[1]);
         break;
 
     case 0xc2:	/* IFMOD */
         if (!s->pm) {
-            TRACE_MIPID("IFMOD");
+            /* ??? IFMOD not implemented? */
         } else if (s->pm < 0) {
             s->pm = (s->n900) ? 3 : 2;
         }
@@ -780,17 +730,14 @@ static uint32_t mipid_txrx(SPIDevice *spidev, uint32_t cmd, int len)
     case 0xda:	/* RDID1 */
         s->p = 0;
         s->resp[0] = (s->id >> 16) & 0xff;
-        TRACE_MIPID("RDID1 0x%02x", s->resp[0]);
         break;
     case 0xdb:	/* RDID2 */
         s->p = 0;
         s->resp[0] = (s->id >>  8) & 0xff;
-        TRACE_MIPID("RDID2 0x%02x", s->resp[0]);
         break;
     case 0xdc:	/* RDID3 */
         s->p = 0;
         s->resp[0] = (s->id >>  0) & 0xff;
-        TRACE_MIPID("RDID3 0x%02x", s->resp[0]);
         break;
 
     default:
