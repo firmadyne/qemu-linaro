@@ -24,15 +24,6 @@
 #include "hw/devices.h"
 #include "hw/spi.h"
 
-//#define TSC2005_DEBUG
-
-#ifdef TSC2005_DEBUG
-#define TRACE(fmt, ...) fprintf(stderr, "%s@%d: " fmt "\n", \
-                                __FUNCTION__, __LINE__, ##__VA_ARGS__)
-#else
-#define TRACE(...)
-#endif
-
 #define TSC_CUT_RESOLUTION(value, p)	((value) >> (16 - (p ? 12 : 10)))
 
 typedef struct {
@@ -131,46 +122,33 @@ static uint16_t tsc2005_read(TSC2005State *s, int reg)
     switch (reg) {
     case 0x0:	/* X */
         s->dav &= ~mode_regs[TSC_MODE_X];
-        TRACE("X = %d", TSC_CUT_RESOLUTION(X_TRANSFORM(s), s->precision) +
-              (s->noise & 3));
         return TSC_CUT_RESOLUTION(X_TRANSFORM(s), s->precision) +
                 (s->noise & 3);
     case 0x1:	/* Y */
         s->dav &= ~mode_regs[TSC_MODE_Y];
         s->noise ++;
-        TRACE("Y = %d", TSC_CUT_RESOLUTION(Y_TRANSFORM(s), s->precision) ^
-              (s->noise & 3));
         return TSC_CUT_RESOLUTION(Y_TRANSFORM(s), s->precision) ^
                 (s->noise & 3);
     case 0x2:	/* Z1 */
         s->dav &= 0xdfff;
-        TRACE("Z1 = %d", TSC_CUT_RESOLUTION(Z1_TRANSFORM(s), s->precision) -
-              (s->noise & 3));
         return TSC_CUT_RESOLUTION(Z1_TRANSFORM(s), s->precision) -
                 (s->noise & 3);
     case 0x3:	/* Z2 */
         s->dav &= 0xefff;
-        TRACE("Z2 = %d", TSC_CUT_RESOLUTION(Z2_TRANSFORM(s), s->precision) |
-              (s->noise & 3));
         return TSC_CUT_RESOLUTION(Z2_TRANSFORM(s), s->precision) |
                 (s->noise & 3);
 
     case 0x4:	/* AUX */
         s->dav &= ~mode_regs[TSC_MODE_AUX];
-        TRACE("AUX = %d", TSC_CUT_RESOLUTION(AUX_VAL, s->precision));
         return TSC_CUT_RESOLUTION(AUX_VAL, s->precision);
 
     case 0x5:	/* TEMP1 */
         s->dav &= ~mode_regs[TSC_MODE_TEMP1];
-        TRACE("TEMP1 = %d", TSC_CUT_RESOLUTION(TEMP1_VAL, s->precision) -
-              (s->noise & 5));
         return TSC_CUT_RESOLUTION(TEMP1_VAL, s->precision) -
                 (s->noise & 5);
     case 0x6:	/* TEMP2 */
         s->dav &= 0xdfff;
         s->dav &= ~mode_regs[TSC_MODE_TEMP2];
-        TRACE("TEMP2 = %d", TSC_CUT_RESOLUTION(TEMP2_VAL, s->precision) ^
-              (s->noise & 3));
         return TSC_CUT_RESOLUTION(TEMP2_VAL, s->precision) ^
                 (s->noise & 3);
 
@@ -179,43 +157,31 @@ static uint16_t tsc2005_read(TSC2005State *s, int reg)
         s->dav &= ~(mode_regs[TSC_MODE_X_TEST] | mode_regs[TSC_MODE_Y_TEST] |
                         mode_regs[TSC_MODE_TS_TEST]);
         s->reset = 1;
-        TRACE("STATUS = 0x%04x", ret);
         return ret;
 
     case 0x8:	/* AUX high treshold */
-        TRACE("AUX high threshold = 0x%04x", s->aux_thr[1]);
         return s->aux_thr[1];
     case 0x9:	/* AUX low treshold */
-        TRACE("AUX low threshold = 0x%04x", s->aux_thr[0]);
         return s->aux_thr[0];
 
     case 0xa:	/* TEMP high treshold */
-        TRACE("TEMP high threshold = 0x%04x", s->temp_thr[1]);
         return s->temp_thr[1];
     case 0xb:	/* TEMP low treshold */
-        TRACE("TEMP low threshold = 0x%04x", s->temp_thr[0]);
         return s->temp_thr[0];
 
     case 0xc:	/* CFR0 */
-        TRACE("CFR0 = 0x%04x", (s->pressure << 15) | ((!s->busy) << 14) |
-              (s->nextprecision << 13) | s->timing[0]);
         return (s->pressure << 15) | ((!s->busy) << 14) |
                 (s->nextprecision << 13) | s->timing[0]; 
     case 0xd:	/* CFR1 */
-        TRACE("CFR1 = 0x%04x", s->timing[1]);
         return s->timing[1];
     case 0xe:	/* CFR2 */
-        TRACE("CFR2 = 0x%04x", (s->pin_func << 14) | s->filter);
         return (s->pin_func << 14) | s->filter;
 
     case 0xf:	/* Function select status */
-        TRACE("function select status = 0x%04x",
-              s->function >= 0 ? 1 << s->function : 0);
         return s->function >= 0 ? 1 << s->function : 0;
     }
 
     /* Never gets here */
-    TRACE("unknown register = 0xffff");
     return 0xffff;
 }
 
@@ -223,52 +189,46 @@ static void tsc2005_write(TSC2005State *s, int reg, uint16_t data)
 {
     switch (reg) {
     case 0x8:	/* AUX high treshold */
-        TRACE("AUX high threshold = 0x%04x", data);
         s->aux_thr[1] = data;
         break;
     case 0x9:	/* AUX low treshold */
-        TRACE("AUX low threshold = 0x%04x", data);
         s->aux_thr[0] = data;
         break;
 
     case 0xa:	/* TEMP high treshold */
-        TRACE("TEMP high threshold = 0x%04x", data);
         s->temp_thr[1] = data;
         break;
     case 0xb:	/* TEMP low treshold */
-        TRACE("TEMP low threshold = 0x%04x", data);
         s->temp_thr[0] = data;
         break;
 
     case 0xc:	/* CFR0 */
-        TRACE("CFR0 = 0x%04x", data);
         s->host_mode = data >> 15;
         if (s->enabled != !(data & 0x4000)) {
             s->enabled = !(data & 0x4000);
-            TRACE("touchscreen sense %sabled", s->enabled ? "en" : "dis");
-            if (s->busy && !s->enabled) {
+            fprintf(stderr, "%s: touchscreen sense %sabled\n",
+                            __FUNCTION__, s->enabled ? "en" : "dis");
+            if (s->busy && !s->enabled)
                 timer_del(s->timer);
-            }
             s->busy &= s->enabled;
         }
         s->nextprecision = (data >> 13) & 1;
         s->timing[0] = data & 0x1fff;
-        if ((s->timing[0] >> 11) == 3) {
-            TRACE("illegal conversion clock setting");
-        }
+        if ((s->timing[0] >> 11) == 3)
+            fprintf(stderr, "%s: illegal conversion clock setting\n",
+                            __FUNCTION__);
         break;
     case 0xd:	/* CFR1 */
-        TRACE("CFR1 = 0x%04x", data);
         s->timing[1] = data & 0xf07;
         break;
     case 0xe:	/* CFR2 */
-        TRACE("CFR2 = 0x%04x", data);
         s->pin_func = (data >> 14) & 3;
         s->filter = data & 0x3fff;
         break;
 
     default:
-        TRACE("write into read-only register 0x%x, value 0x%04x", reg, data);
+        fprintf(stderr, "%s: write into read-only register %x\n",
+                        __FUNCTION__, reg);
     }
 }
 
@@ -276,13 +236,10 @@ static void tsc2005_write(TSC2005State *s, int reg, uint16_t data)
 static void tsc2005_pin_update(TSC2005State *s)
 {
     int64_t expires;
-    TRACE("nextf=%d, press=%d, ena=%d, busy=%d, dav=0x%04x, irq=%d",
-          s->nextfunction, s->pressure, s->enabled, s->busy, s->dav, s->irq);
     switch (s->nextfunction) {
     case TSC_MODE_XYZ_SCAN:
     case TSC_MODE_XY_SCAN:
             if (!s->pin_func && !s->dav) {
-                TRACE("all values read, lowering irq");
                 s->irq = 0;
                 qemu_set_irq(s->pint, s->irq);
             }
@@ -358,7 +315,7 @@ static void tsc2005_reset(DeviceState *qdev)
 static uint8_t tsc2005_txrx_word(TSC2005State *s, uint8_t value)
 {
     uint32_t ret = 0;
-    TRACE("value = 0x%08x, state=%d", value, s->state + 1);
+
     switch (s->state ++) {
     case 0:
         if (value & 0x80) {
@@ -370,8 +327,8 @@ static uint8_t tsc2005_txrx_word(TSC2005State *s, uint8_t value)
                 s->nextprecision = (value >> 2) & 1;
                 if (s->enabled != !(value & 1)) {
                     s->enabled = !(value & 1);
-                    TRACE("touchscreen sense %sabled",
-                          s->enabled ? "en" : "dis");
+                    fprintf(stderr, "%s: touchscreen sense %sabled\n",
+                                    __FUNCTION__, s->enabled ? "en" : "dis");
                     if (s->busy && !s->enabled)
                         timer_del(s->timer);
                     s->busy &= s->enabled;
@@ -423,7 +380,7 @@ static uint32_t tsc2005_txrx(SPIDevice *spidev, uint32_t value, int len)
 {
     TSC2005State *s = FROM_SPI_DEVICE(TSC2005State, spidev);
     uint32_t ret = 0;
-    TRACE("value=0x%08x, len=%d", value, len);
+
     len &= ~7;
     while (len > 0) {
         len -= 8;
@@ -440,10 +397,8 @@ static void tsc2005_timer_tick(void *opaque)
 
     /* Timer ticked -- a set of conversions has been finished.  */
 
-    if (!s->busy) {
-        TRACE("not busy -> exit");
+    if (!s->busy)
         return;
-    }
 
     switch (s->pin_func) {
     case 0:
@@ -459,20 +414,15 @@ static void tsc2005_timer_tick(void *opaque)
     }
     s->busy = 0;
     if (!s->dav) {
-        TRACE("report new conversions ready");
         s->dav |= mode_regs[s->function];
     }
-    TRACE("pin_func=%d, pin_state=%d, pressure=%d, irq=%d, dav=0x%04x",
-          s->pin_func, pin_state, s->pressure, s->irq, s->dav);
     s->function = -1;
     tsc2005_pin_update(s);
 
     if (pin_state != s->irq) {
-        TRACE("changing IRQ state to %d", pin_state);
         s->irq = pin_state;
         qemu_set_irq(s->pint, s->irq);
     }
-    TRACE("done");
 }
 
 static void tsc2005_touchscreen_event(void *opaque,
