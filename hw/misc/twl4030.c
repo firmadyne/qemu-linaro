@@ -58,7 +58,7 @@ typedef void (*twl4030_write_func)(TWL4030NodeState *s,
 #define TYPE_TWL4030NODE "twl4030-node"
 #define TWL4030NODE(obj) OBJECT_CHECK(TWL4030NodeState, (obj), TYPE_TWL4030NODE)
 
-typedef struct TWL4030NodeState {
+struct TWL4030NodeState {
     I2CSlave parent_obj;
     int firstbyte;
     uint8_t reg;
@@ -68,7 +68,7 @@ typedef struct TWL4030NodeState {
     TWL4030State *twl4030;
 
     uint8 reg_data[256];
-} TWL4030NodeState;
+};
 
 struct TWL4030State {
     qemu_irq irq1;
