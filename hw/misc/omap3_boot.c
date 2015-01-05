@@ -684,8 +684,7 @@ static int omap3_mmc_raw_boot(BlockDriverState *bs,
             }
         }
 
-        result = (boot->state == done);
-        free(boot);
+        result = omap3_boot_finish(boot);
     }
     return result;
 }
