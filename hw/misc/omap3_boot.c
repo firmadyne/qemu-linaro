@@ -28,6 +28,7 @@
 #include "sysemu/sysemu.h"
 #include "sysemu/char.h"
 #include "hw/block/flash.h"
+#include "sysemu/block-backend.h"
 #include "sysemu/blockdev.h"
 #include "exec/address-spaces.h"
 
@@ -165,9 +166,9 @@ static const uint8_t omap3_boot_rom[] = { /* 0x40014000-0x4001bfff */
     0xdf, 0xf0, 0x21, 0xe3, /* msr cpsr_c, #0xdf   @ enter SYS mode */
     0x40, 0x04, 0xa0, 0xe3, /* mov r0, #0x40000000 @ r0 -> vba */
     0x05, 0x09, 0x80, 0xe2, /* add r0, r0, #0x14000 */
-    0x10, 0x0f, 0x0c, 0xfe, /* mcr2 p15, 0, r0, c12, c0, 0 */
+    0x10, 0x0f, 0x0c, 0xee, /* mcr p15, 0, r0, c12, c0, 0 */
     0x60, 0x00, 0x80, 0xe2, /* add r0, r0, #0x60  @ r0 -> monitor vba */
-    0x30, 0x0f, 0x0c, 0xfe, /* mcr2 p15, 0, r0, c12, c0, 1 */
+    0x30, 0x0f, 0x0c, 0xee, /* mcr p15, 0, r0, c12, c0, 1 */
     0x1c, 0x00, 0x40, 0xe2, /* sub r0, r0, #1c    @ r0 -> booting parameter struct */
     0x01, 0xf0, 0xa0, 0xe1, /* mov pc, r1 */
 };
@@ -518,7 +519,7 @@ static const uint8_t *omap3_scan_fat_dir_sector(const uint8_t *s)
 }
 
 struct omap3_fat_drv_s {
-    BlockDriverState *bs;
+    BlockBackend *blk;
     uint8_t ptype; /* 12, 16, 32 */
     uint64_t c0;   /* physical byte offset for data cluster 0 */
     uint64_t fat;  /* physical byte offset for used FAT sector 0 */
@@ -541,9 +542,9 @@ static uint32_t omap3_read_fat_cluster(uint8_t *data,
         default: return 0;
     }
     
-    if (bdrv_pread(drv->bs, 
-                   drv->c0 + (cl - 2) * len,
-                   data, len) != len)
+    if (blk_pread(drv->blk,
+                  drv->c0 + (cl - 2) * len,
+                  data, len) != len)
         return 0;
     
     switch (drv->ptype) { /* determine next cluster # */
@@ -551,10 +552,10 @@ static uint32_t omap3_read_fat_cluster(uint8_t *data,
             hw_error("%s: FAT12 parsing not implemented!", __FUNCTION__);
             break;
         case 16:
-            return (bdrv_pread(drv->bs, drv->fat + cl * 2, buf, 2) != 2)
+            return (blk_pread(drv->blk, drv->fat + cl * 2, buf, 2) != 2)
             ? 0 : omap3_get_le16(buf);
         case 32:
-            return (bdrv_pread(drv->bs, drv->fat + cl * 4, buf, 4) != 4)
+            return (blk_pread(drv->blk, drv->fat + cl * 4, buf, 4) != 4)
             ? 0 : omap3_get_le32(buf) & 0x0fffffff;
         default:
             break;
@@ -562,7 +563,7 @@ static uint32_t omap3_read_fat_cluster(uint8_t *data,
     return 0;
 }
 
-static int omap3_mmc_fat_boot(BlockDriverState *bs,
+static int omap3_mmc_fat_boot(BlockBackend *blk,
                               uint8_t *sector,
                               uint32_t pstart,
                               struct omap_mpu_state_s *mpu)
@@ -576,7 +577,7 @@ static int omap3_mmc_fat_boot(BlockDriverState *bs,
     
     /* determine FAT type */
     
-    drv.bs = bs;
+    drv.blk = blk;
     fatsize = omap3_get_le16(sector + 0x16);
     if (!fatsize) 
         fatsize = omap3_get_le32(sector + 0x24);
@@ -618,8 +619,10 @@ static int omap3_mmc_fat_boot(BlockDriverState *bs,
          * drv.c0 points to start of root directory
          */
         for (i = rootsize, j = 0, p = 0; i-- && !p; j++) {
-            if (bdrv_pread(drv.bs, drv.c0 + j * 0x200, sector, 0x200) != 0x200)
+            if (blk_pread(drv.blk, drv.c0 + j * 0x200, sector, 0x200)
+                != 0x200) {
                 break;
+            }
             p = omap3_scan_fat_dir_sector(sector);
         }
         /*
@@ -654,7 +657,7 @@ static int omap3_mmc_fat_boot(BlockDriverState *bs,
     return result;
 }
 
-static int omap3_mmc_raw_boot(BlockDriverState *bs,
+static int omap3_mmc_raw_boot(BlockBackend *blk,
                               uint8_t *sector,
                               struct omap_mpu_state_s *mpu)
 {
@@ -667,7 +670,7 @@ static int omap3_mmc_raw_boot(BlockDriverState *bs,
 
     for (idx = 0; !result && idx < ARRAY_SIZE(boot_sectors); idx++) {
         i = boot_sectors[idx];
-        if (bdrv_pread(bs, i * 0x200, sector, 0x200) != 0x200) {
+        if (blk_pread(blk, i * 0x200, sector, 0x200) != 0x200) {
             TRACE("error trying to read sector %u on boot device", i);
             continue;
         }
@@ -677,7 +680,7 @@ static int omap3_mmc_raw_boot(BlockDriverState *bs,
             /* CH must be present for raw boot */
             while (omap3_boot_block(sector, 0x200, boot)) {
                 i++;
-                if (bdrv_pread(bs, i * 0x200, sector, 0x200) != 0x200) {
+                if (blk_pread(blk, i * 0x200, sector, 0x200) != 0x200) {
                     TRACE("error trying to read sector %u on boot device", i);
                     break;
                 }
@@ -693,6 +696,7 @@ static int omap3_mmc_raw_boot(BlockDriverState *bs,
 static int omap3_mmc_boot(struct omap_mpu_state_s *s)
 {
     DriveInfo *di = drive_get(IF_SD, 0, 0);
+    BlockBackend *blk = blk_by_legacy_dinfo(di);
     uint8_t *sector, *p;
     uint32_t pstart, i;
     int result = 0;
@@ -704,20 +708,20 @@ static int omap3_mmc_boot(struct omap_mpu_state_s *s)
      2. CH sector located on first sector, followed by boot loader image */
     if (di) {
         sector = g_malloc0(0x200);
-        if (bdrv_pread(di->bdrv, 0, sector, 0x200) == 0x200) {
+        if (blk_pread(blk, 0, sector, 0x200) == 0x200) {
             for (i = 0, p = sector + 0x1be; i < 4; i++, p += 0x10) 
                 if (p[0] == 0x80) break;
             if (sector[0x1fe] == 0x55 && sector[0x1ff] == 0xaa /* signature */
                 && i < 4 /* active partition exists */
                 && (p[4] == 1 || p[4] == 4 || p[4] == 6 || p[4] == 11
                     || p[4] == 12 || p[4] == 14 || p[4] == 15) /* FAT */
-                && bdrv_pread(di->bdrv,
-                              (pstart = omap3_get_le32(p + 8)) * 0x200,
-                              sector, 0x200) == 0x200
+                && blk_pread(blk,
+                             (pstart = omap3_get_le32(p + 8)) * 0x200,
+                             sector, 0x200) == 0x200
                 && sector[0x1fe] == 0x55 && sector[0x1ff] == 0xaa)
-                result = omap3_mmc_fat_boot(di->bdrv, sector, pstart, s);
+                result = omap3_mmc_fat_boot(blk, sector, pstart, s);
             else
-                result = omap3_mmc_raw_boot(di->bdrv, sector, s);
+                result = omap3_mmc_raw_boot(blk, sector, s);
         }
         free(sector);
     }
@@ -902,7 +906,7 @@ void omap3_boot_rom_init(struct omap_mpu_state_s *s)
     if (!s->bootrom_initialized) {
         s->bootrom_initialized = 1;
         memory_region_init_ram(&s->bootrom, NULL, "omap3_boot_rom",
-                               OMAP3XXX_BOOTROM_SIZE);
+                               OMAP3XXX_BOOTROM_SIZE, &error_abort);
         memory_region_set_readonly(&s->bootrom, true);
         memory_region_add_subregion(get_system_memory(),
                                     OMAP3_Q1_BASE + 0x14000,

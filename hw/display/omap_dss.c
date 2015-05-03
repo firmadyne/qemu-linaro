@@ -879,7 +879,8 @@ static void omap_diss_write(void *opaque, hwaddr addr,
     struct omap_dss_s *s = (struct omap_dss_s *) opaque;
 
     if (size != 4) {
-        return omap_badwidth_write32(opaque, addr, value);
+        omap_badwidth_write32(opaque, addr, value);
+        return;
     }
 
     switch (addr) {
@@ -1213,7 +1214,8 @@ static void omap_disc_write(void *opaque, hwaddr addr,
     uint32_t n = 0;
 
     if (size != 4) {
-        return omap_badwidth_write32(opaque, addr, value);
+        omap_badwidth_write32(opaque, addr, value);
+        return;
     }
 
     switch (addr) {
@@ -1636,7 +1638,8 @@ static void omap_rfbi_write(void *opaque, hwaddr addr,
     struct omap_dss_s *s = (struct omap_dss_s *) opaque;
 
     if (size != 4) {
-        return omap_badwidth_write32(opaque, addr, value);
+        omap_badwidth_write32(opaque, addr, value);
+        return;
     }
 
     switch (addr) {
@@ -1856,7 +1859,8 @@ static void omap_venc_write(void *opaque, hwaddr addr,
                             uint64_t value, unsigned size)
 {
     if (size != 4) {
-        return omap_badwidth_write32(opaque, addr, size);
+        omap_badwidth_write32(opaque, addr, size);
+        return;
     }
 
     switch (addr) {
@@ -1948,7 +1952,8 @@ static void omap_im3_write(void *opaque, hwaddr addr,
                            uint64_t value, unsigned size)
 {
     if (size != 4) {
-        return omap_badwidth_write32(opaque, addr, value);
+        omap_badwidth_write32(opaque, addr, value);
+        return;
     }
 
     switch (addr) {

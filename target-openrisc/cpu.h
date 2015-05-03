@@ -348,6 +348,7 @@ OpenRISCCPU *cpu_openrisc_init(const char *cpu_model);
 void cpu_openrisc_list(FILE *f, fprintf_function cpu_fprintf);
 int cpu_openrisc_exec(CPUOpenRISCState *s);
 void openrisc_cpu_do_interrupt(CPUState *cpu);
+bool openrisc_cpu_exec_interrupt(CPUState *cpu, int int_req);
 void openrisc_cpu_dump_state(CPUState *cpu, FILE *f,
                              fprintf_function cpu_fprintf, int flags);
 hwaddr openrisc_cpu_get_phys_page_debug(CPUState *cpu, vaddr addr);
@@ -388,14 +389,7 @@ int cpu_openrisc_get_phys_data(OpenRISCCPU *cpu,
                                int *prot, target_ulong address, int rw);
 #endif
 
-static inline CPUOpenRISCState *cpu_init(const char *cpu_model)
-{
-    OpenRISCCPU *cpu = cpu_openrisc_init(cpu_model);
-    if (cpu) {
-        return &cpu->env;
-    }
-    return NULL;
-}
+#define cpu_init(cpu_model) CPU(cpu_openrisc_init(cpu_model))
 
 #include "exec/cpu-all.h"
 
@@ -420,10 +414,5 @@ static inline int cpu_mmu_index(CPUOpenRISCState *env)
 #define CPU_INTERRUPT_TIMER   CPU_INTERRUPT_TGT_INT_0
 
 #include "exec/exec-all.h"
-
-static inline target_ulong cpu_get_pc(CPUOpenRISCState *env)
-{
-    return env->pc;
-}
 
 #endif /* CPU_OPENRISC_H */

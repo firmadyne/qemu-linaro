@@ -51,7 +51,7 @@ struct beagle_s {
     DeviceState *ddc;
 };
 
-static void beagle_common_init(QEMUMachineInitArgs *args,
+static void beagle_common_init(MachineState *machine,
                                ram_addr_t ram_size, int cpu_model)
 {
     MemoryRegion *sysmem = get_system_memory();
@@ -68,12 +68,14 @@ static void beagle_common_init(QEMUMachineInitArgs *args,
     s->cpu = omap3_mpu_init(sysmem, cpu_model, ram_size,
                             NULL, NULL, serial_hds[0], NULL);
 
-    s->nand = nand_init(dmtd ? dmtd->bdrv : NULL, NAND_MFR_MICRON, 0xba);
+    s->nand = nand_init(dmtd ? blk_by_legacy_dinfo(dmtd) : NULL,
+                        NAND_MFR_MICRON, 0xba);
     nand_setpins(s->nand, 0, 0, 0, 1, 0); /* no write-protect */
     omap_gpmc_attach_nand(s->cpu->gpmc, BEAGLE_NAND_CS, s->nand);
 
     if (dsd) {
-        omap3_mmc_attach(s->cpu->omap3_mmc[0], dsd->bdrv, 0, 0);
+        omap3_mmc_attach(s->cpu->omap3_mmc[0], blk_by_legacy_dinfo(dsd),
+                         0, 0);
     }
 
     s->twl4030 = twl4030_init(omap_i2c_bus(s->cpu->i2c[0]),
@@ -94,13 +96,13 @@ static void beagle_common_init(QEMUMachineInitArgs *args,
     omap_lcd_panel_attach(s->cpu->dss);
 }
 
-static void beagle_xm_init(QEMUMachineInitArgs *args)
+static void beagle_xm_init(MachineState *machine)
 {
-    beagle_common_init(args, BEAGLE_XM_SDRAM_SIZE, omap3630);
+    beagle_common_init(machine, BEAGLE_XM_SDRAM_SIZE, omap3630);
 }
-static void beagle_init(QEMUMachineInitArgs *args)
+static void beagle_init(MachineState *machine)
 {
-    beagle_common_init(args, BEAGLE_SDRAM_SIZE, omap3430);
+    beagle_common_init(machine, BEAGLE_SDRAM_SIZE, omap3430);
 }
 
 QEMUMachine beagle_machine = {

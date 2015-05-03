@@ -58,7 +58,7 @@ int qcow2_read_snapshots(BlockDriverState *bs)
     }
 
     offset = s->snapshots_offset;
-    s->snapshots = g_malloc0(s->nb_snapshots * sizeof(QCowSnapshot));
+    s->snapshots = g_new0(QCowSnapshot, s->nb_snapshots);
 
     for(i = 0; i < s->nb_snapshots; i++) {
         /* Read statically sized part of the snapshot header */
@@ -351,10 +351,8 @@ int qcow2_snapshot_create(BlockDriverState *bs, QEMUSnapshotInfo *sn_info)
 
     memset(sn, 0, sizeof(*sn));
 
-    /* Generate an ID if it wasn't passed */
-    if (sn_info->id_str[0] == '\0') {
-        find_new_snapshot_id(bs, sn_info->id_str, sizeof(sn_info->id_str));
-    }
+    /* Generate an ID */
+    find_new_snapshot_id(bs, sn_info->id_str, sizeof(sn_info->id_str));
 
     /* Check that the ID is unique */
     if (find_snapshot_by_id_and_name(bs, sn_info->id_str, NULL) >= 0) {
@@ -381,7 +379,12 @@ int qcow2_snapshot_create(BlockDriverState *bs, QEMUSnapshotInfo *sn_info)
     sn->l1_table_offset = l1_table_offset;
     sn->l1_size = s->l1_size;
 
-    l1_table = g_malloc(s->l1_size * sizeof(uint64_t));
+    l1_table = g_try_new(uint64_t, s->l1_size);
+    if (s->l1_size && l1_table == NULL) {
+        ret = -ENOMEM;
+        goto fail;
+    }
+
     for(i = 0; i < s->l1_size; i++) {
         l1_table[i] = cpu_to_be64(s->l1_table[i]);
     }
@@ -412,7 +415,7 @@ int qcow2_snapshot_create(BlockDriverState *bs, QEMUSnapshotInfo *sn_info)
     }
 
     /* Append the new snapshot to the snapshot list */
-    new_snapshot_list = g_malloc((s->nb_snapshots + 1) * sizeof(QCowSnapshot));
+    new_snapshot_list = g_new(QCowSnapshot, s->nb_snapshots + 1);
     if (s->snapshots) {
         memcpy(new_snapshot_list, s->snapshots,
                s->nb_snapshots * sizeof(QCowSnapshot));
@@ -436,7 +439,7 @@ int qcow2_snapshot_create(BlockDriverState *bs, QEMUSnapshotInfo *sn_info)
     qcow2_discard_clusters(bs, qcow2_vm_state_offset(s),
                            align_offset(sn->vm_state_size, s->cluster_size)
                                 >> BDRV_SECTOR_BITS,
-                           QCOW2_DISCARD_NEVER);
+                           QCOW2_DISCARD_NEVER, false);
 
 #ifdef DEBUG_ALLOC
     {
@@ -499,7 +502,11 @@ int qcow2_snapshot_goto(BlockDriverState *bs, const char *snapshot_id)
      * Decrease the refcount referenced by the old one only when the L1
      * table is overwritten.
      */
-    sn_l1_table = g_malloc0(cur_l1_bytes);
+    sn_l1_table = g_try_malloc0(cur_l1_bytes);
+    if (cur_l1_bytes && sn_l1_table == NULL) {
+        ret = -ENOMEM;
+        goto fail;
+    }
 
     ret = bdrv_pread(bs->file, sn->l1_table_offset, sn_l1_table, sn_l1_bytes);
     if (ret < 0) {
@@ -652,7 +659,7 @@ int qcow2_snapshot_list(BlockDriverState *bs, QEMUSnapshotInfo **psn_tab)
         return s->nb_snapshots;
     }
 
-    sn_tab = g_malloc0(s->nb_snapshots * sizeof(QEMUSnapshotInfo));
+    sn_tab = g_new0(QEMUSnapshotInfo, s->nb_snapshots);
     for(i = 0; i < s->nb_snapshots; i++) {
         sn_info = sn_tab + i;
         sn = s->snapshots + i;
@@ -693,22 +700,26 @@ int qcow2_snapshot_load_tmp(BlockDriverState *bs,
     sn = &s->snapshots[snapshot_index];
 
     /* Allocate and read in the snapshot's L1 table */
-    if (sn->l1_size > QCOW_MAX_L1_SIZE) {
+    if (sn->l1_size > QCOW_MAX_L1_SIZE / sizeof(uint64_t)) {
         error_setg(errp, "Snapshot L1 table too large");
         return -EFBIG;
     }
     new_l1_bytes = sn->l1_size * sizeof(uint64_t);
-    new_l1_table = g_malloc0(align_offset(new_l1_bytes, 512));
+    new_l1_table = qemu_try_blockalign(bs->file,
+                                       align_offset(new_l1_bytes, 512));
+    if (new_l1_table == NULL) {
+        return -ENOMEM;
+    }
 
     ret = bdrv_pread(bs->file, sn->l1_table_offset, new_l1_table, new_l1_bytes);
     if (ret < 0) {
         error_setg(errp, "Failed to read l1 table for snapshot");
-        g_free(new_l1_table);
+        qemu_vfree(new_l1_table);
         return ret;
     }
 
     /* Switch the L1 table */
-    g_free(s->l1_table);
+    qemu_vfree(s->l1_table);
 
     s->l1_size = sn->l1_size;
     s->l1_table_offset = sn->l1_table_offset;

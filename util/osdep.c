@@ -310,72 +310,6 @@ int qemu_accept(int s, struct sockaddr *addr, socklen_t *addrlen)
     return ret;
 }
 
-/*
- * A variant of send(2) which handles partial write.
- *
- * Return the number of bytes transferred, which is only
- * smaller than `count' if there is an error.
- *
- * This function won't work with non-blocking fd's.
- * Any of the possibilities with non-bloking fd's is bad:
- *   - return a short write (then name is wrong)
- *   - busy wait adding (errno == EAGAIN) to the loop
- */
-ssize_t qemu_send_full(int fd, const void *buf, size_t count, int flags)
-{
-    ssize_t ret = 0;
-    ssize_t total = 0;
-
-    while (count) {
-        ret = send(fd, buf, count, flags);
-        if (ret < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
-            break;
-        }
-
-        count -= ret;
-        buf += ret;
-        total += ret;
-    }
-
-    return total;
-}
-
-/*
- * A variant of recv(2) which handles partial write.
- *
- * Return the number of bytes transferred, which is only
- * smaller than `count' if there is an error.
- *
- * This function won't work with non-blocking fd's.
- * Any of the possibilities with non-bloking fd's is bad:
- *   - return a short write (then name is wrong)
- *   - busy wait adding (errno == EAGAIN) to the loop
- */
-ssize_t qemu_recv_full(int fd, void *buf, size_t count, int flags)
-{
-    ssize_t ret = 0;
-    ssize_t total = 0;
-
-    while (count) {
-        ret = qemu_recv(fd, buf, count, flags);
-        if (ret <= 0) {
-            if (ret < 0 && errno == EINTR) {
-                continue;
-            }
-            break;
-        }
-
-        count -= ret;
-        buf += ret;
-        total += ret;
-    }
-
-    return total;
-}
-
 void qemu_set_version(const char *version)
 {
     qemu_version = version;
@@ -436,23 +370,20 @@ int socket_init(void)
     return 0;
 }
 
-/* Ensure that glib is running in multi-threaded mode */
+#if !GLIB_CHECK_VERSION(2, 31, 0)
+/* Ensure that glib is running in multi-threaded mode
+ * Old versions of glib require explicit initialization.  Failure to do
+ * this results in the single-threaded code paths being taken inside
+ * glib.  For example, the g_slice allocator will not be thread-safe
+ * and cause crashes.
+ */
 static void __attribute__((constructor)) thread_init(void)
 {
     if (!g_thread_supported()) {
-#if !GLIB_CHECK_VERSION(2, 31, 0)
-        /* Old versions of glib require explicit initialization.  Failure to do
-         * this results in the single-threaded code paths being taken inside
-         * glib.  For example, the g_slice allocator will not be thread-safe
-         * and cause crashes.
-         */
-        g_thread_init(NULL);
-#else
-        fprintf(stderr, "glib threading failed to initialize.\n");
-        exit(1);
-#endif
+       g_thread_init(NULL);
     }
 }
+#endif
 
 #ifndef CONFIG_IOVEC
 /* helper function for iov_send_recv() */

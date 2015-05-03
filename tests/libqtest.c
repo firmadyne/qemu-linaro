@@ -30,8 +30,9 @@
 
 #include "qemu/compiler.h"
 #include "qemu/osdep.h"
-#include "qapi/qmp/json-streamer.h"
 #include "qapi/qmp/json-parser.h"
+#include "qapi/qmp/json-streamer.h"
+#include "qapi/qmp/qjson.h"
 
 #define MAX_IRQ 256
 #define SOCKET_TIMEOUT 5
@@ -72,7 +73,8 @@ static int init_socket(const char *socket_path)
         ret = bind(sock, (struct sockaddr *)&addr, sizeof(addr));
     } while (ret == -1 && errno == EINTR);
     g_assert_no_errno(ret);
-    listen(sock, 1);
+    ret = listen(sock, 1);
+    g_assert_no_errno(ret);
 
     return sock;
 }
@@ -88,10 +90,13 @@ static int socket_accept(int sock)
     setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (void *)&timeout,
                sizeof(timeout));
 
-    addrlen = sizeof(addr);
     do {
+        addrlen = sizeof(addr);
         ret = accept(sock, (struct sockaddr *)&addr, &addrlen);
     } while (ret == -1 && errno == EINTR);
+    if (ret == -1) {
+        fprintf(stderr, "%s failed: %s\n", __func__, strerror(errno));
+    }
     close(sock);
 
     return ret;
@@ -160,13 +165,15 @@ QTestState *qtest_init(const char *extra_args)
 
     s->qemu_pid = fork();
     if (s->qemu_pid == 0) {
+        setenv("QEMU_AUDIO_DRV", "none", true);
         command = g_strdup_printf("exec %s "
                                   "-qtest unix:%s,nowait "
-                                  "-qtest-log /dev/null "
+                                  "-qtest-log %s "
                                   "-qmp unix:%s,nowait "
                                   "-machine accel=qtest "
                                   "-display none "
                                   "%s", qemu_binary, socket_path,
+                                  getenv("QTEST_LOG") ? "/dev/fd/2" : "/dev/null",
                                   qmp_socket_path,
                                   extra_args ?: "");
         execlp("/bin/sh", "sh", "-c", command, NULL);
@@ -216,19 +223,15 @@ void qtest_quit(QTestState *s)
     g_free(s);
 }
 
-static void socket_sendf(int fd, const char *fmt, va_list ap)
+static void socket_send(int fd, const char *buf, size_t size)
 {
-    gchar *str;
-    size_t size, offset;
-
-    str = g_strdup_vprintf(fmt, ap);
-    size = strlen(str);
+    size_t offset;
 
     offset = 0;
     while (offset < size) {
         ssize_t len;
 
-        len = write(fd, str + offset, size - offset);
+        len = write(fd, buf + offset, size - offset);
         if (len == -1 && errno == EINTR) {
             continue;
         }
@@ -238,6 +241,15 @@ static void socket_sendf(int fd, const char *fmt, va_list ap)
 
         offset += len;
     }
+}
+
+static void socket_sendf(int fd, const char *fmt, va_list ap)
+{
+    gchar *str = g_strdup_vprintf(fmt, ap);
+    size_t size = strlen(str);
+
+    socket_send(fd, str, size);
+    g_free(str);
 }
 
 static void GCC_FMT_ATTR(2, 3) qtest_sendf(QTestState *s, const char *fmt, ...)
@@ -348,6 +360,7 @@ static void qmp_response(JSONMessageParser *parser, QList *tokens)
 QDict *qtest_qmp_receive(QTestState *s)
 {
     QMPResponseParser qmp;
+    bool log = getenv("QTEST_LOG") != NULL;
 
     qmp.response = NULL;
     json_message_parser_init(&qmp.parser, qmp_response);
@@ -365,6 +378,9 @@ QDict *qtest_qmp_receive(QTestState *s)
             exit(1);
         }
 
+        if (log) {
+            len = write(2, &c, 1);
+        }
         json_message_parser_feed(&qmp.parser, &c, 1);
     }
     json_message_parser_destroy(&qmp.parser);
@@ -372,10 +388,45 @@ QDict *qtest_qmp_receive(QTestState *s)
     return qmp.response;
 }
 
+/**
+ * Allow users to send a message without waiting for the reply,
+ * in the case that they choose to discard all replies up until
+ * a particular EVENT is received.
+ */
+void qtest_async_qmpv(QTestState *s, const char *fmt, va_list ap)
+{
+    va_list ap_copy;
+    QObject *qobj;
+
+    /* Going through qobject ensures we escape strings properly.
+     * This seemingly unnecessary copy is required in case va_list
+     * is an array type.
+     */
+    va_copy(ap_copy, ap);
+    qobj = qobject_from_jsonv(fmt, &ap_copy);
+    va_end(ap_copy);
+
+    /* No need to send anything for an empty QObject.  */
+    if (qobj) {
+        int log = getenv("QTEST_LOG") != NULL;
+        QString *qstr = qobject_to_json(qobj);
+        const char *str = qstring_get_str(qstr);
+        size_t size = qstring_get_length(qstr);
+
+        if (log) {
+            fprintf(stderr, "%s", str);
+        }
+        /* Send QMP request */
+        socket_send(s->qmp_fd, str, size);
+
+        QDECREF(qstr);
+        qobject_decref(qobj);
+    }
+}
+
 QDict *qtest_qmpv(QTestState *s, const char *fmt, va_list ap)
 {
-    /* Send QMP request */
-    socket_sendf(s->qmp_fd, fmt, ap);
+    qtest_async_qmpv(s, fmt, ap);
 
     /* Receive reply */
     return qtest_qmp_receive(s);
@@ -390,6 +441,15 @@ QDict *qtest_qmp(QTestState *s, const char *fmt, ...)
     response = qtest_qmpv(s, fmt, ap);
     va_end(ap);
     return response;
+}
+
+void qtest_async_qmp(QTestState *s, const char *fmt, ...)
+{
+    va_list ap;
+
+    va_start(ap, fmt);
+    qtest_async_qmpv(s, fmt, ap);
+    va_end(ap);
 }
 
 void qtest_qmpv_discard_response(QTestState *s, const char *fmt, va_list ap)
@@ -409,9 +469,26 @@ void qtest_qmp_discard_response(QTestState *s, const char *fmt, ...)
     QDECREF(response);
 }
 
+void qtest_qmp_eventwait(QTestState *s, const char *event)
+{
+    QDict *response;
+
+    for (;;) {
+        response = qtest_qmp_receive(s);
+        if ((qdict_haskey(response, "event")) &&
+            (strcmp(qdict_get_str(response, "event"), event) == 0)) {
+            QDECREF(response);
+            break;
+        }
+        QDECREF(response);
+    }
+}
+
+
 const char *qtest_get_arch(void)
 {
     const char *qemu = getenv("QTEST_QEMU_BINARY");
+    g_assert(qemu != NULL);
     const char *end = strrchr(qemu, '/');
 
     return end + strlen("/qemu-system-");
@@ -608,6 +685,14 @@ void qtest_add_func(const char *str, void (*fn))
 {
     gchar *path = g_strdup_printf("/%s/%s", qtest_get_arch(), str);
     g_test_add_func(path, fn);
+    g_free(path);
+}
+
+void qtest_add_data_func(const char *str, const void *data, void (*fn))
+{
+    gchar *path = g_strdup_printf("/%s/%s", qtest_get_arch(), str);
+    g_test_add_data_func(path, data, fn);
+    g_free(path);
 }
 
 void qtest_memwrite(QTestState *s, uint64_t addr, const void *data, size_t size)
@@ -618,6 +703,18 @@ void qtest_memwrite(QTestState *s, uint64_t addr, const void *data, size_t size)
     qtest_sendf(s, "write 0x%" PRIx64 " 0x%zx 0x", addr, size);
     for (i = 0; i < size; i++) {
         qtest_sendf(s, "%02x", ptr[i]);
+    }
+    qtest_sendf(s, "\n");
+    qtest_rsp(s, 0);
+}
+
+void qtest_memset(QTestState *s, uint64_t addr, uint8_t pattern, size_t size)
+{
+    size_t i;
+
+    qtest_sendf(s, "write 0x%" PRIx64 " 0x%zx 0x", addr, size);
+    for (i = 0; i < size; i++) {
+        qtest_sendf(s, "%02x", pattern);
     }
     qtest_sendf(s, "\n");
     qtest_rsp(s, 0);
@@ -634,6 +731,15 @@ QDict *qmp(const char *fmt, ...)
     return response;
 }
 
+void qmp_async(const char *fmt, ...)
+{
+    va_list ap;
+
+    va_start(ap, fmt);
+    qtest_async_qmpv(global_qtest, fmt, ap);
+    va_end(ap);
+}
+
 void qmp_discard_response(const char *fmt, ...)
 {
     va_list ap;
@@ -641,4 +747,52 @@ void qmp_discard_response(const char *fmt, ...)
     va_start(ap, fmt);
     qtest_qmpv_discard_response(global_qtest, fmt, ap);
     va_end(ap);
+}
+
+bool qtest_big_endian(void)
+{
+    const char *arch = qtest_get_arch();
+    int i;
+
+    static const struct {
+        const char *arch;
+        bool big_endian;
+    } endianness[] = {
+        { "aarch64", false },
+        { "alpha", false },
+        { "arm", false },
+        { "cris", false },
+        { "i386", false },
+        { "lm32", true },
+        { "m68k", true },
+        { "microblaze", true },
+        { "microblazeel", false },
+        { "mips", true },
+        { "mips64", true },
+        { "mips64el", false },
+        { "mipsel", false },
+        { "moxie", true },
+        { "or32", true },
+        { "ppc", true },
+        { "ppc64", true },
+        { "ppcemb", true },
+        { "s390x", true },
+        { "sh4", false },
+        { "sh4eb", true },
+        { "sparc", true },
+        { "sparc64", true },
+        { "unicore32", false },
+        { "x86_64", false },
+        { "xtensa", false },
+        { "xtensaeb", true },
+        {},
+    };
+
+    for (i = 0; endianness[i].arch; i++) {
+        if (strcmp(endianness[i].arch, arch) == 0) {
+            return endianness[i].big_endian;
+        }
+    }
+
+    return false;
 }

@@ -145,7 +145,7 @@ struct omap_dma_s {
 
 static inline void omap_dma_interrupts_update(struct omap_dma_s *s)
 {
-    return s->intr_update(s);
+    s->intr_update(s);
 }
 
 static void omap_dma_channel_load(struct omap_dma_channel_s *ch)
@@ -1085,7 +1085,7 @@ static int omap_dma_ch_reg_write(struct omap_dma_s *s,
 
     case 0x22:	/* DMA_COLOR_U */
         ch->color &= 0xffff;
-        ch->color |= value << 16;
+        ch->color |= (uint32_t)value << 16;
         break;
 
     case 0x24:	/* DMA_CCR2 */
@@ -1155,7 +1155,7 @@ static int omap_dma_3_2_lcd_write(struct omap_dma_lcd_channel_s *s, int offset,
 
     case 0xbca:	/* TOP_B1_U */
         s->src_f1_top &= 0x0000ffff;
-        s->src_f1_top |= value << 16;
+        s->src_f1_top |= (uint32_t)value << 16;
         break;
 
     case 0xbcc:	/* BOT_B1_L */
@@ -1377,7 +1377,7 @@ static int omap_dma_3_1_lcd_write(struct omap_dma_lcd_channel_s *s, int offset,
 
     case 0x304:	/* SYS_DMA_LCD_TOP_F1_U */
         s->src_f1_top &= 0x0000ffff;
-        s->src_f1_top |= value << 16;
+        s->src_f1_top |= (uint32_t)value << 16;
         break;
 
     case 0x306:	/* SYS_DMA_LCD_BOT_F1_L */
@@ -1387,7 +1387,7 @@ static int omap_dma_3_1_lcd_write(struct omap_dma_lcd_channel_s *s, int offset,
 
     case 0x308:	/* SYS_DMA_LCD_BOT_F1_U */
         s->src_f1_bottom &= 0x0000ffff;
-        s->src_f1_bottom |= value << 16;
+        s->src_f1_bottom |= (uint32_t)value << 16;
         break;
 
     case 0x30a:	/* SYS_DMA_LCD_TOP_F2_L */
@@ -1397,7 +1397,7 @@ static int omap_dma_3_1_lcd_write(struct omap_dma_lcd_channel_s *s, int offset,
 
     case 0x30c:	/* SYS_DMA_LCD_TOP_F2_U */
         s->src_f2_top &= 0x0000ffff;
-        s->src_f2_top |= value << 16;
+        s->src_f2_top |= (uint32_t)value << 16;
         break;
 
     case 0x30e:	/* SYS_DMA_LCD_BOT_F2_L */
@@ -1407,7 +1407,7 @@ static int omap_dma_3_1_lcd_write(struct omap_dma_lcd_channel_s *s, int offset,
 
     case 0x310:	/* SYS_DMA_LCD_BOT_F2_U */
         s->src_f2_bottom &= 0x0000ffff;
-        s->src_f2_bottom |= value << 16;
+        s->src_f2_bottom |= (uint32_t)value << 16;
         break;
 
     default:
@@ -1614,7 +1614,8 @@ static void omap_dma_write(void *opaque, hwaddr addr,
     int reg, ch;
 
     if (size != 2) {
-        return omap_badwidth_write16(opaque, addr, value);
+        omap_badwidth_write16(opaque, addr, value);
+        return;
     }
 
     switch (addr) {
@@ -1786,7 +1787,7 @@ struct soc_dma_s *omap_dma_init(hwaddr base, qemu_irq *irqs,
     }
 
     omap_dma_setcaps(s);
-    omap_clk_adduser(s->clk, qemu_allocate_irqs(omap_dma_clk_update, s, 1)[0]);
+    omap_clk_adduser(s->clk, qemu_allocate_irq(omap_dma_clk_update, s, 0));
     omap_dma_reset(s->dma);
     omap_dma_clk_update(s, 0, 1);
 
@@ -2161,7 +2162,8 @@ static void omap_dma4_write(void *opaque, hwaddr addr,
     int chnum, irqn = 0;
 
     if (size == 1) {
-        return omap_badwidth_write16(opaque, addr, value);
+        omap_badwidth_write16(opaque, addr, value);
+        return;
     }
 
     switch (addr) {
@@ -2266,7 +2268,7 @@ static struct omap_dma_s *omap_dma4_init_internal(struct omap_mpu_state_s *mpu,
     s->intr_update = omap_dma_interrupts_4_update;
     
     omap_dma_setcaps(s);
-    omap_clk_adduser(s->clk, qemu_allocate_irqs(omap_dma_clk_update, s, 1)[0]);
+    omap_clk_adduser(s->clk, qemu_allocate_irq(omap_dma_clk_update, s, 0));
     omap_dma_reset(s->dma);
     omap_dma_clk_update(s, 0, !!s->dma->freq);
 

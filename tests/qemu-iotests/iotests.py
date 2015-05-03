@@ -21,8 +21,11 @@ import re
 import subprocess
 import string
 import unittest
-import sys; sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'scripts', 'qmp'))
+import sys
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'scripts'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'scripts', 'qmp'))
 import qmp
+import qtest
 import struct
 
 __all__ = ['imgfmt', 'imgproto', 'test_dir' 'qemu_img', 'qemu_io',
@@ -37,6 +40,7 @@ qemu_args = os.environ.get('QEMU', 'qemu').strip().split(' ')
 imgfmt = os.environ.get('IMGFMT', 'raw')
 imgproto = os.environ.get('IMGPROTO', 'file')
 test_dir = os.environ.get('TEST_DIR', '/var/tmp')
+output_dir = os.environ.get('OUTPUT_DIR', '.')
 cachemode = os.environ.get('CACHEMODE')
 
 socket_scm_helper = os.environ.get('SOCKET_SCM_HELPER', 'socket_scm_helper')
@@ -74,18 +78,38 @@ def create_image(name, size):
         i = i + 512
     file.close()
 
+# Test if 'match' is a recursive subset of 'event'
+def event_match(event, match=None):
+    if match is None:
+        return True
+
+    for key in match:
+        if key in event:
+            if isinstance(event[key], dict):
+                if not event_match(event[key], match[key]):
+                    return False
+            elif event[key] != match[key]:
+                return False
+        else:
+            return False
+
+    return True
+
 class VM(object):
     '''A QEMU VM'''
 
     def __init__(self):
         self._monitor_path = os.path.join(test_dir, 'qemu-mon.%d' % os.getpid())
         self._qemu_log_path = os.path.join(test_dir, 'qemu-log.%d' % os.getpid())
+        self._qtest_path = os.path.join(test_dir, 'qemu-qtest.%d' % os.getpid())
         self._args = qemu_args + ['-chardev',
                      'socket,id=mon,path=' + self._monitor_path,
                      '-mon', 'chardev=mon,mode=control',
-                     '-qtest', 'stdio', '-machine', 'accel=qtest',
+                     '-qtest', 'unix:path=' + self._qtest_path,
+                     '-machine', 'accel=qtest',
                      '-display', 'none', '-vga', 'none']
         self._num_drives = 0
+        self._events = []
 
     # This can be used to add an unused monitor instance.
     def add_monitor_telnet(self, ip, port):
@@ -159,9 +183,11 @@ class VM(object):
         qemulog = open(self._qemu_log_path, 'wb')
         try:
             self._qmp = qmp.QEMUMonitorProtocol(self._monitor_path, server=True)
+            self._qtest = qtest.QEMUQtestProtocol(self._qtest_path, server=True)
             self._popen = subprocess.Popen(self._args, stdin=devnull, stdout=qemulog,
                                            stderr=subprocess.STDOUT)
             self._qmp.accept()
+            self._qtest.accept()
         except:
             os.remove(self._monitor_path)
             raise
@@ -172,27 +198,55 @@ class VM(object):
             self._qmp.cmd('quit')
             self._popen.wait()
             os.remove(self._monitor_path)
+            os.remove(self._qtest_path)
             os.remove(self._qemu_log_path)
             self._popen = None
 
     underscore_to_dash = string.maketrans('_', '-')
-    def qmp(self, cmd, **args):
+    def qmp(self, cmd, conv_keys=True, **args):
         '''Invoke a QMP command and return the result dict'''
         qmp_args = dict()
         for k in args.keys():
-            qmp_args[k.translate(self.underscore_to_dash)] = args[k]
+            if conv_keys:
+                qmp_args[k.translate(self.underscore_to_dash)] = args[k]
+            else:
+                qmp_args[k] = args[k]
 
         return self._qmp.cmd(cmd, args=qmp_args)
 
+    def qtest(self, cmd):
+        '''Send a qtest command to guest'''
+        return self._qtest.cmd(cmd)
+
     def get_qmp_event(self, wait=False):
         '''Poll for one queued QMP events and return it'''
+        if len(self._events) > 0:
+            return self._events.pop(0)
         return self._qmp.pull_event(wait=wait)
 
     def get_qmp_events(self, wait=False):
         '''Poll for queued QMP events and return a list of dicts'''
         events = self._qmp.get_events(wait=wait)
+        events.extend(self._events)
+        del self._events[:]
         self._qmp.clear_events()
         return events
+
+    def event_wait(self, name='BLOCK_JOB_COMPLETED', timeout=60.0, match=None):
+        # Search cached events
+        for event in self._events:
+            if (event['event'] == name) and event_match(event, match):
+                self._events.remove(event)
+                return event
+
+        # Poll for new events
+        while True:
+            event = self._qmp.pull_event(wait=timeout)
+            if (event['event'] == name) and event_match(event, match):
+                return event
+            self._events.append(event)
+
+        return None
 
 index_re = re.compile(r'([^\[]+)\[([^\]]+)\]')
 
@@ -257,7 +311,7 @@ class QMPTestCase(unittest.TestCase):
         self.assert_no_active_block_jobs()
         return result
 
-    def wait_until_completed(self, drive='drive0'):
+    def wait_until_completed(self, drive='drive0', check_offset=True):
         '''Wait for a block job to finish, returning the event'''
         completed = False
         while not completed:
@@ -265,8 +319,8 @@ class QMPTestCase(unittest.TestCase):
                 if event['event'] == 'BLOCK_JOB_COMPLETED':
                     self.assert_qmp(event, 'data/device', drive)
                     self.assert_qmp_absent(event, 'data/error')
-                    self.assert_qmp(event, 'data/offset', self.image_len)
-                    self.assert_qmp(event, 'data/len', self.image_len)
+                    if check_offset:
+                        self.assert_qmp(event, 'data/offset', event['data']['len'])
                     completed = True
 
         self.assert_no_active_block_jobs()
@@ -277,15 +331,18 @@ def notrun(reason):
     # Each test in qemu-iotests has a number ("seq")
     seq = os.path.basename(sys.argv[0])
 
-    open('%s.notrun' % seq, 'wb').write(reason + '\n')
+    open('%s/%s.notrun' % (output_dir, seq), 'wb').write(reason + '\n')
     print '%s not run: %s' % (seq, reason)
     sys.exit(0)
 
-def main(supported_fmts=[]):
+def main(supported_fmts=[], supported_oses=['linux']):
     '''Run tests'''
 
     if supported_fmts and (imgfmt not in supported_fmts):
         notrun('not suitable for this image format: %s' % imgfmt)
+
+    if True not in [sys.platform.startswith(x) for x in supported_oses]:
+        notrun('not suitable for this OS: %s' % sys.platform)
 
     # We need to filter out the time taken from the output so that qemu-iotest
     # can reliably diff the results against master output.

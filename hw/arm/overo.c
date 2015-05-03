@@ -42,14 +42,14 @@ struct overo_s {
     DeviceState *ddc;
 };
 
-static void overo_init(QEMUMachineInitArgs *args)
+static void overo_init(MachineState *machine)
 {
     MemoryRegion *sysmem = get_system_memory();
     struct overo_s *s = (struct overo_s *) g_malloc0(sizeof(*s));
     DriveInfo *dmtd = drive_get(IF_MTD, 0, 0);
     DriveInfo *dsd  = drive_get(IF_SD, 0, 0);
 
-    if (args->ram_size > 1024 * 1024 * 1024) {
+    if (machine->ram_size > 1024 * 1024 * 1024) {
         fprintf(stderr, "overo: maximum permitted RAM size 1024MB\n");
         exit(1);
     }
@@ -57,15 +57,17 @@ static void overo_init(QEMUMachineInitArgs *args)
     if (!dmtd && !dsd) {
         hw_error("%s: SD or NAND image required", __FUNCTION__);
     }
-    s->cpu = omap3_mpu_init(sysmem, omap3430, args->ram_size,
+    s->cpu = omap3_mpu_init(sysmem, omap3430, machine->ram_size,
                             NULL, NULL, serial_hds[0], NULL);
 
-    s->nand = nand_init(dmtd ? dmtd->bdrv : NULL, NAND_MFR_MICRON, 0xba);
+    s->nand = nand_init(dmtd ? blk_by_legacy_dinfo(dmtd) : NULL,
+                        NAND_MFR_MICRON, 0xba);
     nand_setpins(s->nand, 0, 0, 0, 1, 0); /* no write-protect */
     omap_gpmc_attach_nand(s->cpu->gpmc, OVERO_NAND_CS, s->nand);
 
     if (dsd) {
-        omap3_mmc_attach(s->cpu->omap3_mmc[0], dsd->bdrv, 0, 0);
+        omap3_mmc_attach(s->cpu->omap3_mmc[0], blk_by_legacy_dinfo(dsd),
+                         0, 0);
     }
 
     /* FAB revs >= 2516: 4030 interrupt is GPIO 0 (earlier ones were 112) */

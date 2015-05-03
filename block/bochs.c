@@ -131,7 +131,11 @@ static int bochs_open(BlockDriverState *bs, QDict *options, int flags,
         return -EFBIG;
     }
 
-    s->catalog_bitmap = g_malloc(s->catalog_size * 4);
+    s->catalog_bitmap = g_try_new(uint32_t, s->catalog_size);
+    if (s->catalog_size && s->catalog_bitmap == NULL) {
+        error_setg(errp, "Could not allocate memory for catalog");
+        return -ENOMEM;
+    }
 
     ret = bdrv_pread(bs->file, le32_to_cpu(bochs.header), s->catalog_bitmap,
                      s->catalog_size * 4);
@@ -187,13 +191,14 @@ static int64_t seek_to_sector(BlockDriverState *bs, int64_t sector_num)
     uint64_t offset = sector_num * 512;
     uint64_t extent_index, extent_offset, bitmap_offset;
     char bitmap_entry;
+    int ret;
 
     // seek to sector
     extent_index = offset / s->extent_size;
     extent_offset = (offset % s->extent_size) / 512;
 
     if (s->catalog_bitmap[extent_index] == 0xffffffff) {
-	return -1; /* not allocated */
+	return 0; /* not allocated */
     }
 
     bitmap_offset = s->data_offset +
@@ -201,13 +206,14 @@ static int64_t seek_to_sector(BlockDriverState *bs, int64_t sector_num)
         (s->extent_blocks + s->bitmap_blocks));
 
     /* read in bitmap for current extent */
-    if (bdrv_pread(bs->file, bitmap_offset + (extent_offset / 8),
-                   &bitmap_entry, 1) != 1) {
-        return -1;
+    ret = bdrv_pread(bs->file, bitmap_offset + (extent_offset / 8),
+                     &bitmap_entry, 1);
+    if (ret < 0) {
+        return ret;
     }
 
     if (!((bitmap_entry >> (extent_offset % 8)) & 1)) {
-	return -1; /* not allocated */
+	return 0; /* not allocated */
     }
 
     return bitmap_offset + (512 * (s->bitmap_blocks + extent_offset));
@@ -220,13 +226,16 @@ static int bochs_read(BlockDriverState *bs, int64_t sector_num,
 
     while (nb_sectors > 0) {
         int64_t block_offset = seek_to_sector(bs, sector_num);
-        if (block_offset >= 0) {
+        if (block_offset < 0) {
+            return block_offset;
+        } else if (block_offset > 0) {
             ret = bdrv_pread(bs->file, block_offset, buf, 512);
-            if (ret != 512) {
-                return -1;
+            if (ret < 0) {
+                return ret;
             }
-        } else
+        } else {
             memset(buf, 0, 512);
+        }
         nb_sectors--;
         sector_num++;
         buf += 512;

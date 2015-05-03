@@ -96,7 +96,7 @@ static int max7310_tx(I2CSlave *i2c, uint8_t data)
     case 0x01:	/* Output port */
         for (diff = (data ^ s->level) & ~s->direction; diff;
                         diff &= ~(1 << line)) {
-            line = ffs(diff) - 1;
+            line = ctz32(diff);
             if (s->handler[line])
                 qemu_set_irq(s->handler[line], (data >> line) & 1);
         }
@@ -152,8 +152,7 @@ static const VMStateDescription vmstate_max7310 = {
     .name = "max7310",
     .version_id = 0,
     .minimum_version_id = 0,
-    .minimum_version_id_old = 0,
-    .fields      = (VMStateField []) {
+    .fields = (VMStateField[]) {
         VMSTATE_INT32(i2c_command_byte, MAX7310State),
         VMSTATE_INT32(len, MAX7310State),
         VMSTATE_UINT8(level, MAX7310State),

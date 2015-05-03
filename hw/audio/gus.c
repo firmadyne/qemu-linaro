@@ -71,25 +71,11 @@ IO_READ_PROTO (gus_readb)
     return gus_read (&s->emu, nport, 1);
 }
 
-IO_READ_PROTO (gus_readw)
-{
-    GUSState *s = opaque;
-
-    return gus_read (&s->emu, nport, 2);
-}
-
 IO_WRITE_PROTO (gus_writeb)
 {
     GUSState *s = opaque;
 
     gus_write (&s->emu, nport, 1, val);
-}
-
-IO_WRITE_PROTO (gus_writew)
-{
-    GUSState *s = opaque;
-
-    gus_write (&s->emu, nport, 2, val);
 }
 
 static int write_audio (GUSState *s, int samples)
@@ -212,7 +198,7 @@ static int GUS_read_DMA (void *opaque, int nchan, int dma_pos, int dma_len)
         pos += copied;
     }
 
-    if (0 == ((mode >> 4) & 1)) {
+    if (((mode >> 4) & 1) == 0) {
         DMA_release_DREQ (s->emu.gusdma);
     }
     return dma_len;
@@ -222,8 +208,7 @@ static const VMStateDescription vmstate_gus = {
     .name = "gus",
     .version_id = 2,
     .minimum_version_id = 2,
-    .minimum_version_id_old = 2,
-    .fields      = (VMStateField []) {
+    .fields = (VMStateField[]) {
         VMSTATE_INT32 (pos, GUSState),
         VMSTATE_INT32 (left, GUSState),
         VMSTATE_INT32 (shift, GUSState),
@@ -237,17 +222,13 @@ static const VMStateDescription vmstate_gus = {
 
 static const MemoryRegionPortio gus_portio_list1[] = {
     {0x000,  1, 1, .write = gus_writeb },
-    {0x000,  1, 2, .write = gus_writew },
     {0x006, 10, 1, .read = gus_readb, .write = gus_writeb },
-    {0x006, 10, 2, .read = gus_readw, .write = gus_writew },
     {0x100,  8, 1, .read = gus_readb, .write = gus_writeb },
-    {0x100,  8, 2, .read = gus_readw, .write = gus_writew },
     PORTIO_END_OF_LIST (),
 };
 
 static const MemoryRegionPortio gus_portio_list2[] = {
-    {0, 1, 1, .read = gus_readb },
-    {0, 1, 2, .read = gus_readw },
+    {0, 2, 1, .read = gus_readb },
     PORTIO_END_OF_LIST (),
 };
 

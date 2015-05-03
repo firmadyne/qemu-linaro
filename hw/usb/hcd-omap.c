@@ -38,10 +38,6 @@
 #define OMAP3_HSUSB_OTG(obj) OBJECT_CHECK(OMAP3HSUSBOTGState, \
                                           (obj), TYPE_OMAP3_HSUSB_OTG)
 
-/* usb-musb.c */
-extern CPUReadMemoryFunc *musb_read[];
-extern CPUWriteMemoryFunc *musb_write[];
-
 typedef struct OMAP3HSUSBOTGState {
     SysBusDevice parent_obj;
 

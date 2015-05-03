@@ -28,6 +28,26 @@
 #include "qemu/iov.h"
 #include "trace.h"
 
+void usb_pick_speed(USBPort *port)
+{
+    static const int speeds[] = {
+        USB_SPEED_SUPER,
+        USB_SPEED_HIGH,
+        USB_SPEED_FULL,
+        USB_SPEED_LOW,
+    };
+    USBDevice *udev = port->dev;
+    int i;
+
+    for (i = 0; i < ARRAY_SIZE(speeds); i++) {
+        if ((udev->speedmask & (1 << speeds[i])) &&
+            (port->speedmask & (1 << speeds[i]))) {
+            udev->speed = speeds[i];
+            return;
+        }
+    }
+}
+
 void usb_attach(USBPort *port)
 {
     USBDevice *dev = port->dev;
@@ -35,6 +55,7 @@ void usb_attach(USBPort *port)
     assert(dev != NULL);
     assert(dev->attached);
     assert(dev->state == USB_STATE_NOTATTACHED);
+    usb_pick_speed(port);
     port->ops->attach(port);
     dev->state = USB_STATE_ATTACHED;
     usb_device_handle_attach(dev);
@@ -308,23 +329,6 @@ void usb_generic_async_ctrl_complete(USBDevice *s, USBPacket *p)
         break;
     }
     usb_packet_complete(s, p);
-}
-
-/* XXX: fix overflow */
-int set_usb_string(uint8_t *buf, const char *str)
-{
-    int len, i;
-    uint8_t *q;
-
-    q = buf;
-    len = strlen(str);
-    *q++ = 2 * len + 2;
-    *q++ = 3;
-    for(i = 0; i < len; i++) {
-        *q++ = str[i];
-        *q++ = 0;
-    }
-    return q - buf;
 }
 
 USBDevice *usb_find_device(USBPort *port, uint8_t addr)
@@ -728,12 +732,6 @@ void usb_ep_set_type(USBDevice *dev, int pid, int ep, uint8_t type)
     uep->type = type;
 }
 
-uint8_t usb_ep_get_ifnum(USBDevice *dev, int pid, int ep)
-{
-    struct USBEndpoint *uep = usb_ep_get(dev, pid, ep);
-    return uep->ifnum;
-}
-
 void usb_ep_set_ifnum(USBDevice *dev, int pid, int ep, uint8_t ifnum)
 {
     struct USBEndpoint *uep = usb_ep_get(dev, pid, ep);
@@ -761,12 +759,6 @@ void usb_ep_set_max_packet_size(USBDevice *dev, int pid, int ep,
     uep->max_packet_size = size * microframes;
 }
 
-int usb_ep_get_max_packet_size(USBDevice *dev, int pid, int ep)
-{
-    struct USBEndpoint *uep = usb_ep_get(dev, pid, ep);
-    return uep->max_packet_size;
-}
-
 void usb_ep_set_max_streams(USBDevice *dev, int pid, int ep, uint8_t raw)
 {
     struct USBEndpoint *uep = usb_ep_get(dev, pid, ep);
@@ -778,18 +770,6 @@ void usb_ep_set_max_streams(USBDevice *dev, int pid, int ep, uint8_t raw)
     } else {
         uep->max_streams = 0;
     }
-}
-
-int usb_ep_get_max_streams(USBDevice *dev, int pid, int ep)
-{
-    struct USBEndpoint *uep = usb_ep_get(dev, pid, ep);
-    return uep->max_streams;
-}
-
-void usb_ep_set_pipeline(USBDevice *dev, int pid, int ep, bool enabled)
-{
-    struct USBEndpoint *uep = usb_ep_get(dev, pid, ep);
-    uep->pipeline = enabled;
 }
 
 void usb_ep_set_halted(USBDevice *dev, int pid, int ep, bool halted)

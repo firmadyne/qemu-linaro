@@ -113,15 +113,15 @@ void microblaze_load_kernel(MicroBlazeCPU *cpu, hwaddr ddr_base,
     const char *kernel_filename;
     const char *kernel_cmdline;
     const char *dtb_arg;
+    char *filename = NULL;
 
     machine_opts = qemu_get_machine_opts();
     kernel_filename = qemu_opt_get(machine_opts, "kernel");
     kernel_cmdline = qemu_opt_get(machine_opts, "append");
     dtb_arg = qemu_opt_get(machine_opts, "dtb");
-    if (dtb_arg) { /* Preference a -dtb argument */
-        dtb_filename = dtb_arg;
-    } else { /* default to pcbios dtb as passed by machine_init */
-        dtb_filename = qemu_find_file(QEMU_FILE_TYPE_BIOS, dtb_filename);
+    /* default to pcbios dtb as passed by machine_init */
+    if (!dtb_arg) {
+        filename = qemu_find_file(QEMU_FILE_TYPE_BIOS, dtb_filename);
     }
 
     boot_info.machine_cpu_reset = machine_cpu_reset;
@@ -148,13 +148,14 @@ void microblaze_load_kernel(MicroBlazeCPU *cpu, hwaddr ddr_base,
                                    big_endian, ELF_MACHINE, 0);
         }
         /* Always boot into physical ram.  */
-        boot_info.bootstrap_pc = ddr_base + (entry & 0x0fffffff);
+        boot_info.bootstrap_pc = (uint32_t)entry;
 
         /* If it wasn't an ELF image, try an u-boot image.  */
         if (kernel_size < 0) {
             hwaddr uentry, loadaddr;
 
-            kernel_size = load_uimage(kernel_filename, &uentry, &loadaddr, 0);
+            kernel_size = load_uimage(kernel_filename, &uentry, &loadaddr, 0,
+                                      NULL, NULL);
             boot_info.bootstrap_pc = uentry;
             high = (loadaddr + kernel_size + 3) & ~3;
         }
@@ -174,11 +175,17 @@ void microblaze_load_kernel(MicroBlazeCPU *cpu, hwaddr ddr_base,
             high = ROUND_UP(high + kernel_size, 4);
             boot_info.initrd_start = high;
             initrd_offset = boot_info.initrd_start - ddr_base;
-            initrd_size = load_image_targphys(initrd_filename,
-                                              boot_info.initrd_start,
-                                              ram_size - initrd_offset);
+
+            initrd_size = load_ramdisk(initrd_filename,
+                                       boot_info.initrd_start,
+                                       ram_size - initrd_offset);
             if (initrd_size < 0) {
-                error_report("qemu: could not load initrd '%s'\n",
+                initrd_size = load_image_targphys(initrd_filename,
+                                                  boot_info.initrd_start,
+                                                  ram_size - initrd_offset);
+            }
+            if (initrd_size < 0) {
+                error_report("qemu: could not load initrd '%s'",
                              initrd_filename);
                 exit(EXIT_FAILURE);
             }
@@ -196,7 +203,8 @@ void microblaze_load_kernel(MicroBlazeCPU *cpu, hwaddr ddr_base,
                             boot_info.initrd_start,
                             boot_info.initrd_end,
                             kernel_cmdline,
-                            dtb_filename);
+                            /* Preference a -dtb argument */
+                            dtb_arg ? dtb_arg : filename);
     }
-
+    g_free(filename);
 }

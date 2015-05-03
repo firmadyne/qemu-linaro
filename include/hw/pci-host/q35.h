@@ -23,7 +23,6 @@
 #define HW_Q35_H
 
 #include "hw/hw.h"
-#include "qemu/range.h"
 #include "hw/isa/isa.h"
 #include "hw/sysbus.h"
 #include "hw/i386/pc.h"
@@ -33,6 +32,7 @@
 #include "hw/acpi/acpi.h"
 #include "hw/acpi/ich9.h"
 #include "hw/pci-host/pam.h"
+#include "hw/i386/intel_iommu.h"
 
 #define TYPE_Q35_HOST_DEVICE "q35-pcihost"
 #define Q35_HOST_DEVICE(obj) \
@@ -60,6 +60,7 @@ typedef struct MCHPCIState {
     uint64_t pci_hole64_size;
     PcGuestInfo *guest_info;
     uint32_t short_root_bus;
+    IntelIOMMUState *iommu;
 } MCHPCIState;
 
 typedef struct Q35PCIHost {

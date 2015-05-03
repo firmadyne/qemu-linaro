@@ -64,7 +64,8 @@ void cpu_outb(pio_addr_t addr, uint8_t val)
 {
     LOG_IOPORT("outb: %04"FMT_pioaddr" %02"PRIx8"\n", addr, val);
     trace_cpu_out(addr, val);
-    address_space_write(&address_space_io, addr, &val, 1);
+    address_space_write(&address_space_io, addr, MEMTXATTRS_UNSPECIFIED,
+                        &val, 1);
 }
 
 void cpu_outw(pio_addr_t addr, uint16_t val)
@@ -74,7 +75,8 @@ void cpu_outw(pio_addr_t addr, uint16_t val)
     LOG_IOPORT("outw: %04"FMT_pioaddr" %04"PRIx16"\n", addr, val);
     trace_cpu_out(addr, val);
     stw_p(buf, val);
-    address_space_write(&address_space_io, addr, buf, 2);
+    address_space_write(&address_space_io, addr, MEMTXATTRS_UNSPECIFIED,
+                        buf, 2);
 }
 
 void cpu_outl(pio_addr_t addr, uint32_t val)
@@ -84,14 +86,16 @@ void cpu_outl(pio_addr_t addr, uint32_t val)
     LOG_IOPORT("outl: %04"FMT_pioaddr" %08"PRIx32"\n", addr, val);
     trace_cpu_out(addr, val);
     stl_p(buf, val);
-    address_space_write(&address_space_io, addr, buf, 4);
+    address_space_write(&address_space_io, addr, MEMTXATTRS_UNSPECIFIED,
+                        buf, 4);
 }
 
 uint8_t cpu_inb(pio_addr_t addr)
 {
     uint8_t val;
 
-    address_space_read(&address_space_io, addr, &val, 1);
+    address_space_read(&address_space_io, addr, MEMTXATTRS_UNSPECIFIED,
+                       &val, 1);
     trace_cpu_in(addr, val);
     LOG_IOPORT("inb : %04"FMT_pioaddr" %02"PRIx8"\n", addr, val);
     return val;
@@ -102,7 +106,7 @@ uint16_t cpu_inw(pio_addr_t addr)
     uint8_t buf[2];
     uint16_t val;
 
-    address_space_read(&address_space_io, addr, buf, 2);
+    address_space_read(&address_space_io, addr, MEMTXATTRS_UNSPECIFIED, buf, 2);
     val = lduw_p(buf);
     trace_cpu_in(addr, val);
     LOG_IOPORT("inw : %04"FMT_pioaddr" %04"PRIx16"\n", addr, val);
@@ -114,7 +118,7 @@ uint32_t cpu_inl(pio_addr_t addr)
     uint8_t buf[4];
     uint32_t val;
 
-    address_space_read(&address_space_io, addr, buf, 4);
+    address_space_read(&address_space_io, addr, MEMTXATTRS_UNSPECIFIED, buf, 4);
     val = ldl_p(buf);
     trace_cpu_in(addr, val);
     LOG_IOPORT("inl : %04"FMT_pioaddr" %08"PRIx32"\n", addr, val);
@@ -149,6 +153,14 @@ void portio_list_set_flush_coalesced(PortioList *piolist)
 
 void portio_list_destroy(PortioList *piolist)
 {
+    MemoryRegionPortioList *mrpio;
+    unsigned i;
+
+    for (i = 0; i < piolist->nr; ++i) {
+        mrpio = container_of(piolist->regions[i], MemoryRegionPortioList, mr);
+        object_unparent(OBJECT(&mrpio->mr));
+        g_free(mrpio);
+    }
     g_free(piolist->regions);
 }
 
@@ -179,9 +191,14 @@ static uint64_t portio_read(void *opaque, hwaddr addr, unsigned size)
         data = mrp->read(mrpio->portio_opaque, mrp->base + addr);
     } else if (size == 2) {
         mrp = find_portio(mrpio, addr, 1, false);
-        assert(mrp);
-        data = mrp->read(mrpio->portio_opaque, mrp->base + addr) |
-                (mrp->read(mrpio->portio_opaque, mrp->base + addr + 1) << 8);
+        if (mrp) {
+            data = mrp->read(mrpio->portio_opaque, mrp->base + addr);
+            if (addr + 1 < mrp->offset + mrp->len) {
+                data |= mrp->read(mrpio->portio_opaque, mrp->base + addr + 1) << 8;
+            } else {
+                data |= 0xff00;
+            }
+        }
     }
     return data;
 }
@@ -196,9 +213,12 @@ static void portio_write(void *opaque, hwaddr addr, uint64_t data,
         mrp->write(mrpio->portio_opaque, mrp->base + addr, data);
     } else if (size == 2) {
         mrp = find_portio(mrpio, addr, 1, true);
-        assert(mrp);
-        mrp->write(mrpio->portio_opaque, mrp->base + addr, data & 0xff);
-        mrp->write(mrpio->portio_opaque, mrp->base + addr + 1, data >> 8);
+        if (mrp) {
+            mrp->write(mrpio->portio_opaque, mrp->base + addr, data & 0xff);
+            if (addr + 1 < mrp->offset + mrp->len) {
+                mrp->write(mrpio->portio_opaque, mrp->base + addr + 1, data >> 8);
+            }
+        }
     }
 }
 
@@ -231,10 +251,6 @@ static void portio_list_add_1(PortioList *piolist,
         mrpio->ports[i].base = start + off_low;
     }
 
-    /*
-     * Use an alias so that the callback is called with an absolute address,
-     * rather than an offset relative to to start + off_low.
-     */
     memory_region_init_io(&mrpio->mr, piolist->owner, &portio_ops, mrpio,
                           piolist->name, off_high - off_low);
     if (piolist->flush_coalesced_mmio) {
@@ -257,7 +273,7 @@ void portio_list_add(PortioList *piolist,
 
     /* Handle the first entry specially.  */
     off_last = off_low = pio_start->offset;
-    off_high = off_low + pio_start->len;
+    off_high = off_low + pio_start->len + pio_start->size - 1;
     count = 1;
 
     for (pio = pio_start + 1; pio->size != 0; pio++, count++) {
@@ -272,10 +288,10 @@ void portio_list_add(PortioList *piolist,
             /* ... and start collecting anew.  */
             pio_start = pio;
             off_low = off_last;
-            off_high = off_low + pio->len;
+            off_high = off_low + pio->len + pio_start->size - 1;
             count = 0;
         } else if (off_last + pio->len > off_high) {
-            off_high = off_last + pio->len;
+            off_high = off_last + pio->len + pio_start->size - 1;
         }
     }
 
@@ -291,8 +307,5 @@ void portio_list_del(PortioList *piolist)
     for (i = 0; i < piolist->nr; ++i) {
         mrpio = container_of(piolist->regions[i], MemoryRegionPortioList, mr);
         memory_region_del_subregion(piolist->address_space, &mrpio->mr);
-        memory_region_destroy(&mrpio->mr);
-        g_free(mrpio);
-        piolist->regions[i] = NULL;
     }
 }

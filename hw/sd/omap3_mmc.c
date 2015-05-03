@@ -787,7 +787,7 @@ static void omap3_mmc_register_types(void)
     type_register_static(&omap3_mmc_info);
 }
 
-void omap3_mmc_attach(DeviceState *dev, BlockDriverState *bs,
+void omap3_mmc_attach(DeviceState *dev, BlockBackend *blk,
                       int is_spi, int is_mmc)
 {
     OMAP3MMCState *s = OMAP3_MMC(dev);
@@ -795,7 +795,7 @@ void omap3_mmc_attach(DeviceState *dev, BlockDriverState *bs,
     if (s->card) {
         hw_error("%s: card already attached!", __FUNCTION__);
     }
-    s->card = sd_init(bs, is_spi, is_mmc);
+    s->card = sd_init(blk, is_spi, is_mmc);
 }
 
 type_init(omap3_mmc_register_types)

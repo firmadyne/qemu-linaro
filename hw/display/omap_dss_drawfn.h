@@ -53,7 +53,7 @@ static void glue(omap_dss_draw_line1_, DEPTH)(void *opaque,
     unsigned int r, g, b;
     const uint8_t *end = src + (width >> 3);
     while (src < end) {
-        uint8_t data = ldub_raw(src++);
+        uint8_t data = ldub_p(src++);
         int i = 8;
         for (; i--; data <<= 1) {
             uint32_t color = palette[data >> 7];
@@ -76,7 +76,7 @@ static void glue(omap_dss_draw_line2_, DEPTH)(void *opaque,
     unsigned int r, g, b;
     const uint8_t *end = src + (width >> 2);
     while (src < end) {
-        uint8_t data = ldub_raw(src++);
+        uint8_t data = ldub_p(src++);
         uint32_t color = palette[data >> 6];
         b = color & 0xff;
         g = (color >> 8) & 0xff;
@@ -111,7 +111,7 @@ static void glue(omap_dss_draw_line4_, DEPTH)(void *opaque,
     unsigned int r, g, b;
     const uint8_t *end = src + (width >> 1);
     while (src < end) {
-        uint8_t data = ldub_raw(src++);
+        uint8_t data = ldub_p(src++);
         uint32_t color = palette[data >> 4];
         b = color & 0xff;
         g = (color >> 8) & 0xff;
@@ -136,7 +136,7 @@ static void glue(omap_dss_draw_line8_, DEPTH)(void *opaque,
     unsigned int r, g, b;
     const uint8_t *end = src + width;
     while (src < end) {
-        uint32_t color = palette[ldub_raw(src++)];
+        uint32_t color = palette[ldub_p(src++)];
         b = color & 0xff;
         g = (color >> 8) & 0xff;
         r = (color >> 16) & 0xff;
@@ -156,7 +156,7 @@ static void glue(omap_dss_draw_line12_, DEPTH)(void *opaque,
     unsigned int r, g, b;
     const uint16_t *end = src + width;
     while (src < end) {
-        data = lduw_raw(src++);
+        data = lduw_p(src++);
         b = (data & 0x0f) << 4;
         g = (data & 0xf0);
         r = (data & 0xf00) >> 4;
@@ -179,7 +179,7 @@ static void glue(omap_dss_draw_line16_, DEPTH)(void *opaque,
     unsigned int r, g, b;
     const uint16_t *end = src + width;
     while (src < end) {
-        data = lduw_raw(src++);
+        data = lduw_p(src++);
         b = (data & 0x1f) << 3;
         g = (data & 0x7e0) >> 3;
         r = data >> 8;
@@ -201,9 +201,9 @@ static void glue(omap_dss_draw_line24a_, DEPTH)(void *opaque,
     unsigned int r, g, b;
     const uint8_t *end = src + (width << 2);
     while (src < end) {
-        b = ldub_raw(src++);
-        g = ldub_raw(src++);
-        r = ldub_raw(src++);
+        b = ldub_p(src++);
+        g = ldub_p(src++);
+        r = ldub_p(src++);
         src++;
         COPY_PIXEL1(dest, glue(rgb_to_pixel, DEPTH)(r, g, b));
     }
@@ -223,9 +223,9 @@ static void glue(omap_dss_draw_line24b_, DEPTH)(void *opaque,
     unsigned int r, g, b;
     const uint8_t *end = src + width * 3;
     while (src < end) {
-        b = ldub_raw(src++);
-        g = ldub_raw(src++);
-        r = ldub_raw(src++);
+        b = ldub_p(src++);
+        g = ldub_p(src++);
+        r = ldub_p(src++);
         COPY_PIXEL1(dest, glue(rgb_to_pixel, DEPTH)(r, g, b));
     }
 #endif
@@ -242,9 +242,9 @@ static void glue(omap_dss_draw_line24c_, DEPTH)(void *opaque,
     const uint8_t *end = src + (width << 2);
     while (src < end) {
         src++;
-        b = ldub_raw(src++);
-        g = ldub_raw(src++);
-        r = ldub_raw(src++);
+        b = ldub_p(src++);
+        g = ldub_p(src++);
+        r = ldub_p(src++);
         COPY_PIXEL1(dest, glue(rgb_to_pixel, DEPTH)(r, g, b));
     }
 }
