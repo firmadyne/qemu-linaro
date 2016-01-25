@@ -64,6 +64,7 @@
 #define FLASH_ADDRESS 0x1e000000ULL
 #define FPGA_ADDRESS  0x1f000000ULL
 #define RESET_ADDRESS 0x1fc00000ULL
+#define ALPHA_EEPROM  0x1d012000ULL
 
 #define FLASH_SIZE    0x400000
 
@@ -746,6 +747,30 @@ static void write_bootloader (CPUMIPSState *env, uint8_t *base,
 
 }
 
+static void write_flash (CPUMIPSState *env, uint8_t *base, int64_t kernel_entry)
+{
+    stl_p(base++, 0xa0bbccdd);
+    stl_p(base++, 0xa0bbccdd);
+    stl_p(base++, 0xaabbccdd);
+    stl_p(base++, 0xaabbccdd);
+    stl_p(base++, 0xaabbccdd);
+    stl_p(base++, 0xa1bbccdd);
+    stl_p(base++, 0xffbbccdd);
+    stl_p(base++, 0xaabbccdd);
+    stl_p(base++, 0xaabbccdd);
+    stl_p(base++, 0xa2bbccdd);
+    stl_p(base++, 0xaabbccdd);
+    stl_p(base++, 0xaabbccdd);
+    stl_p(base++, 0xaabbccdd);
+    stl_p(base++, 0xaabbccdd);
+    stl_p(base++, 0xa3bbccdd);
+    stl_p(base++, 0xaabbccdd);
+    stl_p(base++, 0xaabbccdd);
+    stl_p(base++, 0xaabbccdd);
+    stl_p(base++, 0xa4bbccdd);
+}
+
+
 static void GCC_FMT_ATTR(3, 4) prom_set(uint32_t* prom_buf, int index,
                                         const char *string, ...)
 {
@@ -916,11 +941,13 @@ void mips_malta_init(MachineState *machine)
     const char *initrd_filename = machine->initrd_filename;
     char *filename;
     pflash_t *fl;
+    pflash_t *alphafl;
     MemoryRegion *system_memory = get_system_memory();
     MemoryRegion *ram_high = g_new(MemoryRegion, 1);
     MemoryRegion *ram_low_preio = g_new(MemoryRegion, 1);
     MemoryRegion *ram_low_postio;
     MemoryRegion *bios, *bios_copy = g_new(MemoryRegion, 1);
+    MemoryRegion *alpha = g_new(MemoryRegion, 1);
     target_long bios_size = FLASH_SIZE;
     const size_t smbus_eeprom_size = 8 * 256;
     uint8_t *smbus_eeprom_buf = g_malloc0(smbus_eeprom_size);
@@ -935,6 +962,7 @@ void mips_malta_init(MachineState *machine)
     I2CBus *smbus;
     int i;
     DriveInfo *dinfo;
+    DriveInfo *dinfo_alpha;
     DriveInfo *hd[MAX_IDE_BUS * MAX_IDE_DEVS];
     DriveInfo *fd[MAX_FD];
     int fl_idx = 0;
@@ -1040,7 +1068,14 @@ void mips_malta_init(MachineState *machine)
                                BIOS_SIZE,
                                dinfo ? blk_by_legacy_dinfo(dinfo) : NULL,
                                65536, fl_sectors,
-                               4, 0x0000, 0x0000, 0x0000, 0x0000, be);
+                               2, 0x2200, 0x0020, 0x1122, 0x22c4, be);
+    dinfo_alpha = drive_get(IF_PFLASH, 0, 1);
+    alphafl = pflash_cfi01_register(ALPHA_EEPROM, NULL, "alpha",
+                               0x10000, dinfo_alpha ? blk_by_legacy_dinfo(dinfo_alpha) : NULL,
+                               65536, fl_sectors,
+                               2, 0x0000, 0x0000, 0x0000, 0x0000, be);
+    alpha = pflash_cfi01_get_memory(alphafl);
+                               //4, 0x0000, 0x0000, 0x0000, 0x0000, be);
     bios = pflash_cfi01_get_memory(fl);
     fl_idx++;
     if (kernel_filename) {
@@ -1062,6 +1097,7 @@ void mips_malta_init(MachineState *machine)
 
         write_bootloader(env, memory_region_get_ram_ptr(bios),
                          bootloader_run_addr, kernel_entry);
+        write_flash(env, memory_region_get_ram_ptr(alpha), kernel_entry);
         if (kvm_enabled()) {
             /* Write the bootloader code @ the end of RAM, 1MB reserved */
             write_bootloader(env, memory_region_get_ram_ptr(ram_low_preio) +
